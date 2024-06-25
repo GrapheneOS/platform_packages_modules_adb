@@ -1640,7 +1640,7 @@ void atransport::UpdateReverseConfig(std::string_view service_addr) {
         }
         std::string remote(service_addr.substr(0, it));
 
-        if (norebind && reverse_forwards_.find(remote) != reverse_forwards_.end()) {
+        if (norebind && reverse_forwards_.contains(remote)) {
             // This will fail, don't update the map.
             LOG(DEBUG) << "ignoring reverse forward that will fail due to norebind";
             return;

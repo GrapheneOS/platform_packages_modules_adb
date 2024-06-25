@@ -97,6 +97,10 @@ This pipeline is detailed in [daemon/jdwp_service.cpp](daemon/jdwp_service.cpp) 
 
 To transfer files and directories, ADB places a smart-socket in SYNC mode and then issues SYNC commands. The SYNC protocol is documented in [SYNC.TXT](SYNC.TXT).
 
+### ADB Wifi architecture
+
+[here](docs/dev/adb_wifi.md)
+
 ### Benchmark sample run for Pixel 8,USB
 
 ```
