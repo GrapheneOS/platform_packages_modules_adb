@@ -484,6 +484,8 @@ void init_mdns_transport_discovery();
 atransport* find_transport(const char* serial);
 
 void kick_all_tcp_devices();
+
+bool using_bonjour(void);
 #endif
 
 void kick_all_transports();

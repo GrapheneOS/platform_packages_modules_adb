@@ -306,6 +306,7 @@ cc_library_host_static {
 
     static_libs: [
         "libadb_crypto",
+        "libadb_host_protos",
         "libadb_pairing_connection",
         "libadb_protos",
         "libadb_tls_connection",
@@ -314,7 +315,6 @@ cc_library_host_static {
         "libcrypto_utils",
         "libcutils",
         "libdiagnose_usb",
-        "libdevices_protos",
         "liblog",
         "libmdnssd",
         "libopenscreen-discovery",
@@ -375,6 +375,7 @@ cc_test_host {
     static_libs: [
         "libadb_crypto_static",
         "libadb_host",
+        "libadb_host_protos",
         "libadb_pairing_auth_static",
         "libadb_pairing_connection_static",
         "libadb_protos_static",
@@ -384,7 +385,6 @@ cc_test_host {
         "libcrypto",
         "libcrypto_utils",
         "libcutils",
-        "libdevices_protos",
         "libdiagnose_usb",
         "liblog",
         "libmdnssd",
@@ -440,6 +440,7 @@ cc_binary_host {
     static_libs: [
         "libadb_crypto",
         "libadb_host",
+        "libadb_host_protos",
         "libadb_pairing_auth",
         "libadb_pairing_connection",
         "libadb_protos",
@@ -453,7 +454,6 @@ cc_binary_host {
         "libcrypto_utils",
         "libcutils",
         "libdiagnose_usb",
-        "libdevices_protos",
         "libfastdeploy_host",
         "liblog",
         "liblog",
@@ -917,7 +917,7 @@ python_test_host {
     main: "test_device.py",
     srcs: [
         "proto/app_processes.proto",
-        "proto/devices.proto",
+        "proto/adb_host.proto",
         "test_device.py",
     ],
     proto: {
@@ -1001,6 +1001,7 @@ cc_test_host {
     static_libs: [
         "libadb_crypto_static",
         "libadb_host",
+        "libadb_host_protos",
         "libadb_pairing_auth_static",
         "libadb_pairing_connection_static",
         "libadb_protos_static",
@@ -1011,7 +1012,6 @@ cc_test_host {
         "libcrypto",
         "libcrypto_utils",
         "libcutils",
-        "libdevices_protos",
         "libdiagnose_usb",
         "libfastdeploy_host",
         "liblog",

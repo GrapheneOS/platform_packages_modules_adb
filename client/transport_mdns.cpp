@@ -225,6 +225,11 @@ bool ConnectAdbSecureDevice(const MdnsInfo& info) {
 }  // namespace
 
 /////////////////////////////////////////////////////////////////////////////////
+
+bool using_bonjour(void) {
+    return g_using_bonjour;
+}
+
 void mdns_cleanup() {
     if (g_using_bonjour) {
         return g_adb_mdnsresponder_funcs.mdns_cleanup();

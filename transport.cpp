@@ -57,8 +57,8 @@
 
 #if ADB_HOST
 #include <google/protobuf/text_format.h>
+#include "adb_host.pb.h"
 #include "client/usb.h"
-#include "devices.pb.h"
 #endif
 
 using namespace adb::crypto;
@@ -100,6 +100,7 @@ const char* const kFeatureOpenscreenMdns = "openscreen_mdns";
 const char* const kFeatureDeviceTrackerProtoFormat = "devicetracker_proto_format";
 const char* const kFeatureDevRaw = "devraw";
 const char* const kFeatureAppInfo = "app_info";  // Add information to track-app (package name, ...)
+const char* const kFeatureServerStatus = "server_status";  // Ability to output server status
 
 namespace {
 
@@ -1210,6 +1211,7 @@ const FeatureSet& supported_features() {
             kFeatureDeviceTrackerProtoFormat,
             kFeatureDevRaw,
             kFeatureAppInfo,
+            kFeatureServerStatus,
         };
         // clang-format on
 

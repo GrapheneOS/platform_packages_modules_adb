@@ -145,7 +145,7 @@ cc_library_host_static {
 }
 
 cc_defaults {
-    name: "libdevices_protos_defaults",
+    name: "adb_host_protos_defaults",
     cflags: [
         "-Wall",
         "-Wextra",
@@ -156,7 +156,7 @@ cc_defaults {
     compile_multilib: "both",
 
     srcs: [
-        "devices.proto",
+        "adb_host.proto",
     ],
     target: {
         windows: {
@@ -178,12 +178,11 @@ cc_defaults {
 }
 
 cc_library_host_static {
-    name: "libdevices_protos",
-    defaults: ["libdevices_protos_defaults"],
+    name: "libadb_host_protos",
+    defaults: ["adb_host_protos_defaults"],
 
     proto: {
         export_proto_headers: true,
         type: "full",
     },
 }
-

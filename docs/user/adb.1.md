@@ -270,6 +270,7 @@ jdwp
 logcat
 &nbsp;&nbsp;&nbsp;&nbsp;Show device log (logcat --help for more).
 
+server-status Display server configuration (USB backend, mDNS backend, log location, binary path. See [adb_host.proto](../../proto/adb_host.proto) (AdbServerStatus) for details.
 
 # SECURITY:
 
