@@ -231,7 +231,7 @@ void mdns_cleanup() {
     }
 }
 
-void init_mdns_transport_discovery(void) {
+void init_mdns_transport_discovery() {
     const char* mdns_osp = getenv("ADB_MDNS_OPENSCREEN");
     if (mdns_osp && strcmp(mdns_osp, "0") == 0) {
         g_using_bonjour = true;

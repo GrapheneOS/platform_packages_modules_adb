@@ -73,7 +73,7 @@ static std::string get_log_file_name() {
                                        getpid());
 }
 
-void start_device_log(void) {
+void start_device_log() {
     int fd = unix_open(get_log_file_name(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0640);
     if (fd == -1) {
         return;

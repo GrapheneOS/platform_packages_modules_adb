@@ -144,7 +144,7 @@ std::string to_string(ConnectionState state) {
     }
 }
 
-apacket* get_apacket(void) {
+apacket* get_apacket() {
     apacket* p = new apacket();
     if (p == nullptr) {
         LOG(FATAL) << "failed to allocate an apacket";

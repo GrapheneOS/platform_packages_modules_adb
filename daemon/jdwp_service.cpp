@@ -139,8 +139,8 @@ enum class TrackerKind {
 };
 
 static void jdwp_process_event(int socket, unsigned events, void* _proc);
-static void jdwp_process_list_updated(void);
-static void app_process_list_updated(void);
+static void jdwp_process_list_updated();
+static void app_process_list_updated();
 
 struct JdwpProcess;
 static auto& _jdwp_list = *new std::list<std::unique_ptr<JdwpProcess>>();
@@ -377,7 +377,7 @@ static void jdwp_socket_ready(asocket* s) {
     }
 }
 
-asocket* create_jdwp_service_socket(void) {
+asocket* create_jdwp_service_socket() {
     JdwpSocket* s = new JdwpSocket();
 
     if (!s) {
@@ -429,11 +429,11 @@ static void process_list_updated(TrackerKind kind) {
     }
 }
 
-static void jdwp_process_list_updated(void) {
+static void jdwp_process_list_updated() {
     process_list_updated(TrackerKind::kJdwp);
 }
 
-static void app_process_list_updated(void) {
+static void app_process_list_updated() {
     process_list_updated(TrackerKind::kApp);
 }
 
@@ -507,7 +507,7 @@ asocket* create_app_tracker_service_socket() {
     return create_process_tracker_service_socket(TrackerKind::kApp);
 }
 
-int init_jdwp(void) {
+int init_jdwp() {
     std::thread([]() {
         adb_thread_setname("jdwp control");
         adbconnection_listen([](int fd, ProcessInfo process) {
@@ -530,7 +530,7 @@ int init_jdwp(void) {
 #else  // !defined(__ANDROID_RECOVERY)
 #include "adb.h"
 
-asocket* create_jdwp_service_socket(void) {
+asocket* create_jdwp_service_socket() {
     return nullptr;
 }
 

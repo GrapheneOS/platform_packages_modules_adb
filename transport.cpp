@@ -781,7 +781,7 @@ static void fdevent_register_transport(atransport* t) {
 }
 
 #if ADB_HOST
-void init_reconnect_handler(void) {
+void init_reconnect_handler() {
     reconnect_handler.Start();
 }
 #endif

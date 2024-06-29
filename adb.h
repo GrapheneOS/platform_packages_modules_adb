@@ -180,7 +180,7 @@ bool handle_forward_request(const char* service,
                             int reply_fd);
 
 /* packet allocator */
-apacket* get_apacket(void);
+apacket* get_apacket();
 void put_apacket(apacket* p);
 
 // Define it if you want to dump packets.

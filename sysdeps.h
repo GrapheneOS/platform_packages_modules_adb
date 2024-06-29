@@ -789,7 +789,7 @@ static inline void disable_tcp_nagle(borrowed_fd fd) {
 bool set_tcp_keepalive(borrowed_fd fd, int interval_sec);
 
 // Returns a human-readable OS version string.
-extern std::string GetOSVersion(void);
+extern std::string GetOSVersion();
 
 #if defined(_WIN32)
 // Win32 defines ERROR, which we don't need, but which conflicts with google3 logging.
