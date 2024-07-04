@@ -642,4 +642,9 @@ void usb_init() {
     std::thread(device_poll_thread).detach();
 }
 
-void usb_cleanup() {}
+void usb_cleanup() {
+    if (should_use_libusb()) {
+        VLOG(USB) << "Linux libusb cleanup";
+        close_usb_devices();
+    }
+}
