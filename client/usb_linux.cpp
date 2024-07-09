@@ -643,7 +643,7 @@ void usb_init() {
 }
 
 void usb_cleanup() {
-    if (should_use_libusb()) {
+    if (is_libusb_enabled()) {
         VLOG(USB) << "Linux libusb cleanup";
         close_usb_devices();
     }

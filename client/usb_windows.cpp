@@ -256,7 +256,7 @@ void usb_init() {
 void usb_cleanup() {
     // On Windows, shutting down the server without releasing USB interfaces makes claiming
     // them again unstable upon next startup.
-    if (should_use_libusb()) {
+    if (is_libusb_enabled()) {
         VLOG(USB) << "Windows libusb cleanup";
         close_usb_devices();
     }
