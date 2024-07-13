@@ -409,8 +409,8 @@ cc_test_host {
     },
 }
 
-cc_binary_host {
-    name: "adb",
+cc_defaults {
+    name: "adb_binary_host_defaults",
 
     stl: "libc++_static",
     defaults: ["adb_defaults"],
@@ -500,6 +500,27 @@ cc_binary_host {
                 "AdbWinUsbApi",
             ],
         },
+    },
+}
+
+cc_binary_host {
+    name: "adb",
+    defaults: ["adb_binary_host_defaults"],
+}
+
+cc_binary_host {
+    name: "adb_asan",
+    defaults: ["adb_binary_host_defaults"],
+    target: {
+            darwin: {
+                sanitize: { address: true, },
+                strip: {  none: true },
+            },
+            linux: {
+                sanitize: { address: true, },
+                strip: {  none: true },
+            },
+            // Not supported on Windows yet...
     },
 }
 
