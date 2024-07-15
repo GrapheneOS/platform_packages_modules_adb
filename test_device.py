@@ -37,7 +37,6 @@ import time
 import unittest
 
 import proto.adb_host_pb2 as adb_host_proto
-import proto.devices_pb2 as proto_devices
 
 from datetime import datetime
 
@@ -1882,7 +1881,7 @@ class DevicesListing(DeviceTest):
             self.assertTrue(foundAdbAppOwnProc)
             proc.terminate()
 
-class ServerStatus(ServerStatusTest):
+class ServerStatus(unittest.TestCase):
     def test_server_status(self):
         with subprocess.Popen(['adb', 'server-status'], stdin=subprocess.PIPE, stdout=subprocess.PIPE) as proc:
             lines = list(map(lambda b: b.decode("utf-8"), proc.stdout.readlines()))

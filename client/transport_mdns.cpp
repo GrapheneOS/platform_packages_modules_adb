@@ -84,6 +84,7 @@ class DiscoveryReportingClient : public discovery::ReportingClient {
 };
 
 struct DiscoveryState {
+    std::optional<discovery::Config> config;
     SerialDeletePtr<discovery::DnsSdService> service;
     std::unique_ptr<DiscoveryReportingClient> reporting_client;
     std::unique_ptr<AdbOspTaskRunner> task_runner;
@@ -137,6 +138,12 @@ std::optional<discovery::Config> GetConfigForAllInterfaces() {
     auto interface_infos = GetNetworkInterfaces();
 
     discovery::Config config;
+
+    // The host only consumes mDNS traffic. It doesn't publish anything.
+    // Avoid creating an mDNSResponder that will listen with authority
+    // to answer over no domain.
+    config.enable_publication = false;
+
     for (const auto interface : interface_infos) {
         if (interface.GetIpAddressV4() || interface.GetIpAddressV6()) {
             config.network_info.push_back({interface});
@@ -159,13 +166,13 @@ void StartDiscovery() {
     g_state->reporting_client = std::make_unique<DiscoveryReportingClient>();
 
     g_state->task_runner->PostTask([]() {
-        auto config = GetConfigForAllInterfaces();
-        if (!config) {
+        g_state->config = GetConfigForAllInterfaces();
+        if (g_state->config) {
             return;
         }
 
-        g_state->service = discovery::CreateDnsSdService(g_state->task_runner.get(),
-                                                         g_state->reporting_client.get(), *config);
+        g_state->service = discovery::CreateDnsSdService(
+                g_state->task_runner.get(), g_state->reporting_client.get(), *g_state->config);
         // Register a receiver for each service type
         for (int i = 0; i < kNumADBDNSServices; ++i) {
             auto receiver = std::make_unique<ServiceReceiver>(
