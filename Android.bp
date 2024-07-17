@@ -521,6 +521,9 @@ cc_binary_host {
                 strip: {  none: true },
             },
             // Not supported on Windows yet...
+            windows: {
+                enabled: false,
+            }
     },
 }
 
