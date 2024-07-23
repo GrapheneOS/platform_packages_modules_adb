@@ -431,7 +431,7 @@ std::string format_host_command(const char* command) {
 
 const std::optional<FeatureSet>& adb_get_feature_set(std::string* error) {
     static std::mutex feature_mutex [[clang::no_destroy]];
-    static std::optional<FeatureSet> features [[clang::no_destroy]] GUARDED_BY(feature_mutex);
+    static std::optional<FeatureSet> features [[clang::no_destroy]];
     std::lock_guard<std::mutex> lock(feature_mutex);
     if (!features) {
         std::string result;

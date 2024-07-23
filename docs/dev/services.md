@@ -1,3 +1,4 @@
+```
 This file tries to document all requests a client can make
 to the ADB server of an adbd daemon. See the OVERVIEW.TXT document
 to understand what's going on here.
@@ -305,3 +306,4 @@ reverse:<forward-command>
 
     The output of reverse:list-forward is the same as host:list-forward
     except that <serial> will be just 'host'.
+```
