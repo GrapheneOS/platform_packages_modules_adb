@@ -167,9 +167,13 @@ void StartDiscovery() {
 
     g_state->task_runner->PostTask([]() {
         g_state->config = GetConfigForAllInterfaces();
-        if (g_state->config) {
+        if (!g_state->config) {
+            VLOG(MDNS) << "No mDNS config. Aborting StartDiscovery()";
             return;
         }
+
+        VLOG(MDNS) << "Starting discovery on " << (*g_state->config).network_info.size()
+                   << " interfaces";
 
         g_state->service = discovery::CreateDnsSdService(
                 g_state->task_runner.get(), g_state->reporting_client.get(), *g_state->config);
