@@ -140,6 +140,8 @@ std::string to_string(ConnectionState state) {
             return "authorizing";
         case kCsConnecting:
             return "connecting";
+        case kCsDetached:
+            return "detached";
         default:
             return "unknown";
     }
