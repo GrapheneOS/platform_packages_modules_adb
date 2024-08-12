@@ -218,7 +218,7 @@ static size_t app_process_list(char* buffer, size_t bufferlen) {
     for (auto& proc : _jdwp_list) {
         if (!proc->process.debuggable && !proc->process.profileable) continue;
         auto* entry = temp.add_process();
-        *entry = std::move(proc->process.toProtobuf());
+        *entry = proc->process.toProtobuf();
         temp.SerializeToString(&serialized_message);
         if (serialized_message.size() > bufferlen) {
             D("truncating app process list (max len = %zu)", bufferlen);
