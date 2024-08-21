@@ -110,11 +110,12 @@ Despite its name the `sync` protocol is also what powers operations such as `pul
 ### Benchmark sample run for Pixel 8,USB
 
 ```
-$ ./benchmark_device.py
-sink 100MiB: 10 runs: median 27.00 MiB/s, mean 26.39 MiB/s, stddev: 1.11 MiB/s
-source 100MiB: 10 runs: median 36.97 MiB/s, mean 37.05 MiB/s, stddev: 0.46 MiB/s
-push 100MiB: 10 runs: median 331.96 MiB/s, mean 329.81 MiB/s, stddev: 14.67 MiB/s
-pull 100MiB: 10 runs: median 34.55 MiB/s, mean 33.57 MiB/s, stddev: 2.54 MiB/s
+$ ./benchmark_device.py 
+sink   100MiB (write RAM)  : 10 runs: median 128.07 MiB/s, mean 126.90 MiB/s, stddev: 19.37 MiB/s
+source 100MiB (read RAM)   : 10 runs: median 233.73 MiB/s, mean 250.81 MiB/s, stddev: 47.45 MiB/s
+push   100MiB (write flash): 10 runs: median 142.82 MiB/s, mean 145.49 MiB/s, stddev: 16.57 MiB/s
+pull   100MiB (read flash) : 10 runs: median 190.37 MiB/s, mean 189.08 MiB/s, stddev: 51.24 MiB/s
+dd     100MiB (write flash): 10 runs: median 121.57 MiB/s, mean 125.60 MiB/s, stddev: 15.81 MiB/s
 ```
 
 ### Tests
