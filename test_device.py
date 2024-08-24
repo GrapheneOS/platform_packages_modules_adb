@@ -36,7 +36,7 @@ import threading
 import time
 import unittest
 
-import proto.adb_host_pb2 as adb_host_proto
+import adb_host_pb2 as adb_host_proto
 
 from datetime import datetime
 
