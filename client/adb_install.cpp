@@ -543,7 +543,8 @@ static int install_multiple_app_streamed(int argc, const char** argv) {
 
         if (android::base::EndsWithIgnoreCase(file, ".apk") ||
             android::base::EndsWithIgnoreCase(file, ".dm") ||
-            android::base::EndsWithIgnoreCase(file, ".fsv_sig")) {
+            android::base::EndsWithIgnoreCase(file, ".fsv_sig") ||
+            android::base::EndsWithIgnoreCase(file, ".idsig")) {  // v4 external signature.
             struct stat sb;
             if (stat(file, &sb) == -1) perror_exit("failed to stat \"%s\"", file);
             total_size += sb.st_size;
