@@ -138,14 +138,15 @@ void adbconnection_listen(void (*callback)(int fd, ProcessInfo process)) {
         }
 
         auto process_info = readProcessInfoFromSocket(it->get());
+
+        if (epoll_ctl(epfd.get(), EPOLL_CTL_DEL, event.data.fd, nullptr) != 0) {
+          PLOG(FATAL) << "failed to delete fd " << event.data.fd << " from JDWP epoll fd";
+        }
+
         if (process_info) {
           callback(it->release(), *process_info);
         } else {
           LOG(ERROR) << "Unable to read ProcessInfo from app startup";
-        }
-
-        if (epoll_ctl(epfd.get(), EPOLL_CTL_DEL, event.data.fd, nullptr) != 0) {
-          PLOG(FATAL) << "failed to delete fd " << event.data.fd << " from JDWP epoll fd";
         }
 
         pending_connections.erase(it);
