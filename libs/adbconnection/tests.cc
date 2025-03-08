@@ -46,12 +46,14 @@ void waitForUpdateReceived() {
   cv.wait(lock);
 }
 
+std::atomic_bool should_run = true;
+
 void server_callback(int fd, ProcessInfo process) {
   info = process;
   onUpdateReceived();
   // After the first processinfo update is received, jdwp_service in adbd takes over reading
   // from the fd leveraging fdevent system. We emulate it by reading on a regular basis.
-  while (true) {
+  while (should_run) {
     auto optional = readProcessInfoFromSocket(fd);
     if (optional) {
       info = *optional;
@@ -59,6 +61,9 @@ void server_callback(int fd, ProcessInfo process) {
     }
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
   }
+
+  onUpdateReceived();
+  close(fd);
 }
 
 // This test mimics an app starting up and sending data as zygote is specializing
@@ -110,4 +115,9 @@ TEST(LibAdbConnectionTest, TestComm) {
   EXPECT_EQ(info.process_name, "my_process_name");
   EXPECT_EQ(info.user_id, 888);
   EXPECT_TRUE(info.waiting_for_debugger);
+
+  should_run = false;
+  waitForUpdateReceived();
+  // Wait for server to finish processing epoll events.
+  sleep(1);
 }
