@@ -297,17 +297,8 @@ BlockingConnectionAdapter::BlockingConnectionAdapter(std::unique_ptr<BlockingCon
     : underlying_(std::move(connection)) {}
 
 BlockingConnectionAdapter::~BlockingConnectionAdapter() {
-    bool stopped = false;
-    {
-        std::lock_guard<std::mutex> lock(mutex_);
-        stopped = stopped_;
-    }
-    if (stopped) {
-        LOG(INFO) << "~BlockingConnectionAdapter: already stopped";
-    } else {
-        LOG(INFO) << "BlockingConnectionAdapter(" << Serial() << "): destructing";
-        Stop();
-    }
+    LOG(INFO) << "BlockingConnectionAdapter(" << Serial() << "): destructing";
+    Stop();
 }
 
 void BlockingConnectionAdapter::Start() {
