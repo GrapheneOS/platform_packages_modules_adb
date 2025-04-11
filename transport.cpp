@@ -740,6 +740,7 @@ static void fdevent_unregister_transport(atransport* t) {
         pending_list.remove(t);
     }
 
+    t->connection()->SetTransport(nullptr);
     delete t;
 
     update_transports();
