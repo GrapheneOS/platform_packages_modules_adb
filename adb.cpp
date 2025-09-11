@@ -1359,8 +1359,12 @@ HostRequestResult handle_host_request(std::string_view service, TransportType ty
         }
         status.set_usb_backend_forced(getenv("ADB_LIBUSB") != nullptr);
 
-        status.set_mdns_backend(adb::proto::AdbServerStatus::OPENSCREEN);
-        status.set_mdns_backend_forced(false);
+        if (mdns::should_use_openscreen()) {
+            status.set_mdns_backend(adb::proto::AdbServerStatus::OPENSCREEN);
+        } else {
+            status.set_mdns_backend(adb::proto::AdbServerStatus::ADBMDNS);
+        }
+        status.set_mdns_backend_forced(getenv("ADB_MDNS_OPENSCREEN") != nullptr);
 
         status.set_version(std::string(PLATFORM_TOOLS_VERSION));
         status.set_build(android::build::GetBuildNumber());

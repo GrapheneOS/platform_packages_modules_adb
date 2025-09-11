@@ -1,0 +1,31 @@
+rust_library_rlib {
+    name: "libadbmdns_bridge",
+    crate_name: "adbmdns_bridge",
+    srcs: [
+        "adbmdns_bridge.rs",
+    ],
+    rustlibs: [
+        "liblibc",
+        "liblog_rust",
+        "libsocket2",
+        "libanyhow",
+    ],
+    // Define export_include_dirs so cc_binary knows where the headers are.
+    export_include_dirs: ["."],
+    host_supported: true,
+    device_supported: false,
+    target: {
+        windows: {
+            enabled: true,
+        },
+        darwin: {
+            sanitize: {
+                address: false,
+            },
+            rustlibs: [
+                "libzerocopy",
+                "libanyhow",
+            ],
+        },
+    },
+}

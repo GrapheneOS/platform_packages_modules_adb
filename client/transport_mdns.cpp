@@ -37,6 +37,8 @@
 #include "adb_trace.h"
 #include "adb_utils.h"
 #include "adb_wifi.h"
+#include "client/adbmdns/adbmdns.h"
+#include "client/adbmdns/adbmdns_bridge.h"
 #include "client/discovered_services.h"
 #include "client/mdns_utils.h"
 #include "client/openscreen/mdns_service.h"
@@ -124,12 +126,10 @@ void OnServiceReceiverResult(const ServiceInfo& info, ServiceInfoState state) {
 /////////////////////////////////////////////////////////////////////////////////
 
 void init_mdns_transport_discovery() {
-    const char* mdns_osp = getenv("ADB_MDNS_OPENSCREEN");
-    if (mdns_osp && strcmp(mdns_osp, "0") == 0) {
-        LOG(WARNING) << "Environment variable ADB_MDNS_OPENSCREEN disregarded";
-    } else {
-        VLOG(MDNS) << "Openscreen mdns discovery enabled";
+    if (mdns::should_use_openscreen()) {
         StartOpenScreenDiscovery();
+    } else {
+        StartAdbMdnsDiscovery();
     }
 }
 
@@ -146,7 +146,11 @@ std::string mdns_check() {
         return "ERROR: mdns discovery disabled";
     }
 
-    return "mdns daemon version [Openscreen discovery 0.0.0]";
+    if (mdns::should_use_openscreen()) {
+        return "mdns daemon version [Openscreen discovery 0.0.0]";
+    }
+
+    return "mdns daemon version [adb discovery 0.0.0]";
 }
 
 std::string mdns_list_discovered_services() {

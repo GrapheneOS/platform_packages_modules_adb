@@ -78,4 +78,14 @@ bool is_enabled() {
     return !getenv("ADB_MDNS") || strcmp(getenv("ADB_MDNS"), "0") != 0;
 }
 
+// Historically, this env variable was a boolean used to disable openscreen.
+// It has evolved into an enum to select the mdns backend
+// 0 = Bonjour (deprecated)
+// 1 = Openscreen
+// 2 = Adbmdns
+bool should_use_openscreen() {
+    const char* mdns_osp = getenv("ADB_MDNS_OPENSCREEN");
+    return mdns_osp == nullptr || strcmp(mdns_osp, "2") != 0;
+}
+
 }  // namespace mdns
