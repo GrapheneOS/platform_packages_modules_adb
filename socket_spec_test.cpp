@@ -293,7 +293,7 @@ TEST(socket_spec, socket_spec_listen_connect_vsock_success) {
     // case since it's not possible on the device under test.
     bool connected = socket_spec_connect(&client_fd, "vsock:1", &port, &serial, &error);
     if (!connected) {
-      if (errno == ENODEV) {
+      if (errno == ENODEV || errno == EPFNOSUPPORT || errno == EAFNOSUPPORT) {
         GTEST_SKIP() << "vsock not supported on this kernel";
       }
       if (errno == ECONNREFUSED) {
