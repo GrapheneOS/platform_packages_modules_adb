@@ -13,6 +13,7 @@ time = "0.3.41"
 netwatcher = "0.1.0"
 dns-parser = "0.8"
 log = "0.4.27"
-zerocopy = { version = "0.8.26", features = [] }
+zerocopy = { version = "0.8.26", features = ["derive"] }
 libc = "0.2.174"
 anyhow = "1.0.99"
+nix = { version = "0.29.0", features = ["socket", "uio"] }

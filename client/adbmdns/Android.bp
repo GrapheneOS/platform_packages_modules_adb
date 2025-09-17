@@ -24,7 +24,12 @@ rust_library_rlib {
             },
             rustlibs: [
                 "libzerocopy",
-                "libanyhow",
+            ],
+        },
+        linux: {
+            rustlibs: [
+                "libnix",
+                "libzerocopy",
             ],
         },
     },
