@@ -45,6 +45,7 @@
 #include "adb_auth.h"
 #include "adb_io.h"
 #include "daemon/adbd_wifi.h"
+#include "daemon/mdns.h"
 #include "fdevent/fdevent.h"
 #include "transport.h"
 #include "types.h"
@@ -278,6 +279,7 @@ void adbd_auth_init() {
     }).detach();
 
     adbd_wifi_init(auth_ctx);
+    adbd_mdns_init(auth_ctx);
 }
 
 void send_auth_request(atransport* t) {
