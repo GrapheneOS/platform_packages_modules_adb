@@ -135,9 +135,8 @@ fn listen(callback: &(impl Fn() + Send + Sized)) -> Result<()> {
 
     // We keep a shadow state for interface flags in order to dedupe messages that are triggered
     // every few minutes even when no changes are reported.
-    // TODO(aalbert): Investigate this. Note that the even has a payload with various attributes.
-    //  Perhaps some of these attributes change? However, the events seem to be coming in a precise
-    //  interval so that seems unlikely. It looks more like a ping event.
+    // This could happen when wpa_supplicant or any other system does a periodic scan of Wi-Fi.
+    // https://g.co/gemini/share/8787d77aec26
     let mut flags_per_interface: HashMap<i32, InterfaceFlags> = HashMap::new();
 
     loop {
