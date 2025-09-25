@@ -37,7 +37,6 @@ cc_defaults {
         type: "lite",
     },
     srcs: [
-        "adb_known_hosts.proto",
         "key_type.proto",
         "pairing.proto",
     ],
@@ -185,6 +184,7 @@ filegroup {
     name: "adb_host_proto",
     srcs: [
         "adb_host.proto",
+        "adb_known_hosts.proto",
     ],
     visibility: [
         "//packages/modules/adb:__subpackages__",

@@ -129,7 +129,10 @@ mdns **check** | **services**
 &nbsp;&nbsp;&nbsp;&nbsp;List all discovered services.
 
 **track-services**
-&nbsp;&nbsp;&nbsp;&nbsp;Stream discovered services. Supports flags "--proto-text" and "proto-binary".
+&nbsp;&nbsp;&nbsp;&nbsp;Stream discovered services. Supports flags "--proto-text" and "--proto-binary".
+
+**list-known-hosts**
+&nbsp;&nbsp;&nbsp;&nbsp;Show ADB Wifi paired devices. Supports flags "--proto-text" and "--proto-binary".
 
 # FILE TRANSFER:
 
