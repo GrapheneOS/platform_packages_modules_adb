@@ -48,7 +48,6 @@ constexpr int kADBSecureConnectServiceRefIndex = 2;
 constexpr int kNumADBDNSServices = 3;
 
 extern const char* _Nonnull kADBDNSServices[kNumADBDNSServices];
-extern const char* _Nonnull kADBDNSServiceTxtRecords[kNumADBDNSServices];
 
 #if ADB_HOST
 #include "client/discovered_services.h"
