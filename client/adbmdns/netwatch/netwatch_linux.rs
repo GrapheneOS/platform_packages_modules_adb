@@ -14,7 +14,6 @@
 
 mod util;
 
-use crate::netwatch::netwatch_linux::util::MsgType;
 use anyhow::anyhow;
 use anyhow::Context;
 use anyhow::Result;
@@ -38,6 +37,7 @@ use std::thread;
 use std::thread::sleep;
 use std::time::Duration;
 use util::IfInfoMsg;
+use util::MsgType;
 use util::NlMsgHdr;
 use zerocopy::FromBytes;
 
@@ -83,14 +83,21 @@ impl fmt::Display for ParseResult {
 }
 
 fn log_change(index: i32, old_flags: InterfaceFlags, new_flags: InterfaceFlags) {
-    log::debug!(
-        "Change detected on interface {}: flags changed from {:#x} ({}) to {:#x} ({})",
-        index,
-        old_flags.bits(),
-        old_flags,
-        new_flags.bits(),
-        new_flags,
+    let mut line = format!(
+        "Change detected on interface {}: flags changed: {:#x} -> {:#x}",
+        index, old_flags, new_flags
     );
+    let added = new_flags.difference(old_flags);
+    let removed = old_flags.difference(new_flags);
+
+    if !added.is_empty() {
+        line.push_str(&format!(" Added: {}", added))
+    }
+    if !removed.is_empty() {
+        line.push_str(&format!(" Removed: {}", removed))
+    }
+
+    log::debug!("{line}");
 }
 
 /// Parse a NelLink message buffer
@@ -159,8 +166,10 @@ fn listen(callback: &(impl Fn() + Send + Sized)) -> Result<()> {
                     if old_flags != new_flags {
                         log_change(index, old_flags, new_flags);
                         flags_per_interface.insert(index, new_flags);
-                        log::debug!("Calling callback.");
-                        callback();
+                        if new_flags.difference(old_flags).contains(InterfaceFlags::IFF_RUNNING) {
+                            log::debug!("Calling callback for interface {index}.");
+                            callback();
+                        }
                     } else {
                         log::debug!("Flags unchanged.")
                     }
