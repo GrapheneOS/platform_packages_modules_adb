@@ -16,6 +16,8 @@
 
 #include "mdns.h"
 
+#if defined(__ANDROID__)
+
 #include "adb_mdns.h"
 #include "adb_trace.h"
 #include "sysdeps.h"
@@ -35,9 +37,11 @@
 #include <thread>
 #include <vector>
 
+#include <adbd_auth.h>
 #include <android-base/logging.h>
 #include <android-base/properties.h>
 #include <android-base/thread_annotations.h>
+#include <com_android_adbdauth_flags.h>
 
 using namespace std::chrono_literals;
 
@@ -47,6 +51,11 @@ using namespace std::chrono_literals;
 
 // Bonjour handles for registered services.
 static DNSServiceRef mdns_refs[kNumADBDNSServices];
+
+static AdbdAuthContext* auth_ctx;
+void adbd_mdns_init(AdbdAuthContext* ctx) {
+    auth_ctx = ctx;
+}
 
 static std::string RandomAlphaNumString(size_t len) {
     std::string ret;
@@ -242,27 +251,60 @@ class MdnsWorkerThread {
 
 void register_adb_tcp_service(int tcp_port) {
     MdnsWorkerThread::Get().AddTask([tcp_port] {
-        std::string hostname = "adb-";
-        hostname += android::base::GetProperty("ro.serialno", "unidentified");
+        std::string hostname = ReadDeviceGuid();
         VLOG(MDNS) << "Registering tcp service on port: " << tcp_port;
         register_mdns_service(kADBTransportServiceRefIndex, tcp_port, hostname);
     });
 }
 
 void register_adb_tls_service(int tls_port) {
-    MdnsWorkerThread::Get().AddTask([tls_port] {
-        auto service_name = ReadDeviceGuid();
-        if (service_name.empty()) {
+    auto service_name = ReadDeviceGuid();
+    if (service_name.empty()) {
+        LOG(WARNING) << "Unable to register TLS: DeviceGUID is empty";
+        return;
+    }
+
+    if (com_android_adbdauth_flags_use_tls_lifecycle()) {
+        if (__builtin_available(android 37, *)) {
+            LOG(INFO) << "Registering TLS with framework '" << service_name << "'";
+            adbd_auth_register_service(auth_ctx, service_name.c_str(),
+                                       kADBDNSServices[kADBSecureConnectServiceRefIndex], tls_port);
             return;
         }
+    }
+
+    // Fallback to registering with mdnsd
+    MdnsWorkerThread::Get().AddTask([=] {
         VLOG(MDNS) << "Registering tls service (" << service_name << ") on port: " << tls_port;
         register_mdns_service(kADBSecureConnectServiceRefIndex, tls_port, service_name);
     });
 }
 
 void unregister_adb_tls_service() {
+    auto service_name = ReadDeviceGuid();
+    if (service_name.empty()) {
+        LOG(WARNING) << "Unable to unregister TLS: DeviceGUID is empty";
+        return;
+    }
+
+    if (com_android_adbdauth_flags_use_tls_lifecycle()) {
+        if (__builtin_available(android 37, *)) {
+            adbd_auth_unregister_service(auth_ctx, service_name.c_str(),
+                                         kADBDNSServices[kADBSecureConnectServiceRefIndex]);
+            return;
+        }
+    }
+
+    // Fallback to unregistering with mdnsd
     MdnsWorkerThread::Get().AddTask([] {
         VLOG(MDNS) << "Unregistering tls service";
         unregister_mdns_service(kADBSecureConnectServiceRefIndex);
     });
 }
+
+#else
+void register_adb_tcp_service(int tcp_port) {}
+void register_adb_tls_service(int tls_port) {}
+void unregister_adb_tls_service() {}
+void adbd_mdns_init(AdbdAuthContext* ctx) {}
+#endif  // defined(__ANDROID__)
