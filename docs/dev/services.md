@@ -157,6 +157,11 @@ host:server-status
         <hex4>: The length of the protobuffer message
         <payload>: An MdnsServices binary protobuffer
 
+<host-prefix>:list-mdns-known-hosts
+    One shot list of all ADB Wifi known hosts
+        <hex4>: The length of the protobuffer message
+        <payload>: An AdbKnownHosts binary protobuffer
+
 LOCAL SERVICES:
 
 All the queries below assumed that you already switched the transport
