@@ -17,9 +17,11 @@ mod util;
 use anyhow::anyhow;
 use anyhow::Context;
 use anyhow::Result;
+use libc::c_uint;
 use libc::RTM_DELLINK;
 use libc::RTM_GETLINK;
 use libc::RTM_NEWLINK;
+use nix::net::if_::if_indextoname;
 use nix::net::if_::IflagsType;
 use nix::net::if_::InterfaceFlags;
 use nix::sys::socket;
@@ -33,6 +35,7 @@ use nix::sys::socket::SockType;
 use std::collections::HashMap;
 use std::fmt;
 use std::os::fd::AsRawFd;
+use std::path::PathBuf;
 use std::thread;
 use std::thread::sleep;
 use std::time::Duration;
@@ -123,6 +126,34 @@ fn parse(slice: &[u8]) -> Result<ParseResult> {
     }
 }
 
+/// Checks if an interface is wireless
+///
+/// Retrieves the interface name and returns true if the path `/sys/class/net/<name>/wireless`
+/// exists.
+fn is_wireless(index: i32) -> Result<bool> {
+    let name = get_interface_name(index)?;
+    let wireless = PathBuf::from(format!("/sys/class/net/{}/wireless", name)).exists();
+    log::debug!(
+        "Interface {index} ('{}') is {}",
+        if name.is_empty() { "<unknown>" } else { name.as_str() },
+        if wireless { "wireless" } else { "not wireless" },
+    );
+    Ok(wireless)
+}
+
+/// Gets the name of the network interface by its index
+///
+/// Note that there are 2 failure modes.
+/// 1. The system call [if_indextoname] can fail to retrieve the name
+/// 2. [if_indextoname] returns a CString on success so we need to convert this into UTF8.
+///    This can also fail but it's unlikely.
+fn get_interface_name(index: i32) -> Result<String> {
+    if_indextoname(index as c_uint)
+        .with_context(|| format!("Failed to get name for interface {index}"))?
+        .into_string()
+        .with_context(|| format!("Failed to convert interface {index} name to String"))
+}
+
 fn listen(callback: &(impl Fn() + Send + Sized)) -> Result<()> {
     log::debug!("Creating Netlink socket");
     let fd = socket::socket(
@@ -144,7 +175,7 @@ fn listen(callback: &(impl Fn() + Send + Sized)) -> Result<()> {
     // every few minutes even when no changes are reported.
     // This could happen when wpa_supplicant or any other system does a periodic scan of Wi-Fi.
     // https://g.co/gemini/share/8787d77aec26
-    let mut flags_per_interface: HashMap<i32, InterfaceFlags> = HashMap::new();
+    let mut flags_state: HashMap<i32, InterfaceFlags> = HashMap::new();
 
     loop {
         let len = socket::recv(fd.as_raw_fd(), buf, MsgFlags::empty())
@@ -155,33 +186,45 @@ fn listen(callback: &(impl Fn() + Send + Sized)) -> Result<()> {
         while offset < len {
             let slice: &[u8] = &buf[offset..len];
             let result = parse(slice)?;
-
-            let len = match result {
-                ParseResult::Link { len, index, flags: new_flags, .. } => {
-                    log::debug!("Received {}", result);
-                    let old_flags = flags_per_interface
-                        .get(&index)
-                        .copied()
-                        .unwrap_or(InterfaceFlags::from_bits_truncate(0));
-                    if old_flags != new_flags {
-                        log_change(index, old_flags, new_flags);
-                        flags_per_interface.insert(index, new_flags);
-                        if new_flags.difference(old_flags).contains(InterfaceFlags::IFF_RUNNING) {
-                            log::debug!("Calling callback for interface {index}.");
-                            callback();
-                        }
-                    } else {
-                        log::debug!("Flags unchanged.")
-                    }
-                    len
-                }
-                ParseResult::Unknown { len, .. } => {
-                    log::warn!("Received unexpected RTM message: {}", result);
-                    len
-                }
-            };
-
+            let len = handle_result(result, callback, &mut flags_state);
             offset += len.next_multiple_of(4);
+        }
+    }
+}
+
+fn handle_result(
+    result: ParseResult,
+    callback: &impl Fn(),
+    flags_state: &mut HashMap<i32, InterfaceFlags>,
+) -> usize {
+    match result {
+        ParseResult::Link { len, index, flags: new_flags, .. } => {
+            log::debug!("Received {}", result);
+            let is_wireless = is_wireless(index).unwrap_or_else(|err| {
+                log::error!("Error checking interface {index}. Assuming wireless: {err}");
+                // Better to trigger a callback when not needed than miss one when needed
+                true
+            });
+            if !is_wireless {
+                log::debug!("Ignoring non wireless interface: {index}");
+                return len;
+            }
+            let old_flags = flags_state.get(&index).copied().unwrap_or(InterfaceFlags::empty());
+            if old_flags == new_flags {
+                log::debug!("Flags unchanged.");
+                return len;
+            }
+            log_change(index, old_flags, new_flags);
+            flags_state.insert(index, new_flags);
+            if new_flags.difference(old_flags).contains(InterfaceFlags::IFF_RUNNING) {
+                log::debug!("Calling callback for interface {index}.");
+                callback();
+            }
+            len
+        }
+        ParseResult::Unknown { len, .. } => {
+            log::warn!("Received unexpected RTM message: {}", result);
+            len
         }
     }
 }
