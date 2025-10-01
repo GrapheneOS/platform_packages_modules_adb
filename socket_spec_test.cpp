@@ -224,6 +224,12 @@ TEST(socket_spec, socket_spec_listen_connect_tcp) {
     EXPECT_NE(client_fd.get(), -1);
 }
 
+#ifdef __linux__
+bool vsockUnsupportedByKernel() {
+    return errno == ENODEV || errno == EPFNOSUPPORT || errno == EAFNOSUPPORT;
+}
+#endif
+
 TEST(socket_spec, socket_spec_listen_connect_vsock_success) {
 #ifndef __linux__
     GTEST_SKIP() << "vsock is only supported on Linux";
@@ -245,7 +251,10 @@ TEST(socket_spec, socket_spec_listen_connect_vsock_success) {
 #endif
     socklen_t addr_len = sizeof(addr);
     unique_fd check_fd(socket(AF_VSOCK, SOCK_STREAM, 0));
-    EXPECT_TRUE(check_fd.get() != -1);
+    if (check_fd.get() == -1 && vsockUnsupportedByKernel()) {
+        GTEST_SKIP() << "vsock not supported on this kernel";
+    }
+    EXPECT_NE(check_fd.get(), -1);
     if (!bind(check_fd.get(), reinterpret_cast<struct sockaddr*>(&addr), addr_len)) {
         check_fd.reset();
         // No existing vsock server on port 5555, so create one (testing on a physical device).
@@ -293,7 +302,7 @@ TEST(socket_spec, socket_spec_listen_connect_vsock_success) {
     // case since it's not possible on the device under test.
     bool connected = socket_spec_connect(&client_fd, "vsock:1", &port, &serial, &error);
     if (!connected) {
-      if (errno == ENODEV || errno == EPFNOSUPPORT || errno == EAFNOSUPPORT) {
+      if (vsockUnsupportedByKernel()) {
         GTEST_SKIP() << "vsock not supported on this kernel";
       }
       if (errno == ECONNREFUSED) {
