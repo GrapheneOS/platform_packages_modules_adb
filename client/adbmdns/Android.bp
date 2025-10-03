@@ -1,6 +1,6 @@
-rust_library_rlib {
-    name: "libadbmdns_bridge",
-    crate_name: "adbmdns_bridge",
+rust_defaults {
+    name: "libadbmdns_defaults",
+    edition: "2024",
     srcs: [
         "adbmdns_bridge.rs",
     ],
@@ -9,6 +9,7 @@ rust_library_rlib {
         "liblog_rust",
         "libsocket2",
         "libanyhow",
+        "libsimple_dns",
     ],
     // Define export_include_dirs so cc_binary knows where the headers are.
     export_include_dirs: ["."],
@@ -36,4 +37,16 @@ rust_library_rlib {
             ],
         },
     },
+}
+
+rust_test_host {
+    name: "libadbmdns_tests",
+    defaults: ["libadbmdns_defaults"],
+    test_suites: ["general-tests"],
+}
+
+rust_library_rlib {
+    name: "libadbmdns_bridge",
+    crate_name: "adbmdns_bridge",
+    defaults: ["libadbmdns_defaults"],
 }

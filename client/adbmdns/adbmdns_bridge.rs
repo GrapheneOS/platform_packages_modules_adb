@@ -22,10 +22,14 @@
 use std::ffi::{c_char, c_int, c_uint, CString};
 use std::net::{Ipv4Addr, Ipv6Addr};
 use std::sync::Mutex;
-use std::thread;
-use std::time::Duration;
 
 mod netwatch;
+mod zero_config;
+use zero_config::ZeroConfig;
+
+mod zero_config_driver;
+
+use zero_config_driver::ZeroConfigDriver;
 
 // These enum and function must be kept in sync with the bridge header file
 // TODO: Use bindgen to auto-generate rust from this file.
@@ -96,6 +100,7 @@ pub unsafe extern "C" fn register(cb: EventCallback) {
     *G_EVENT_CALLBACK.lock().unwrap() = Some(wrapped);
 }
 
+// TODO Documentation
 fn send_update(
     event_type: AdbMdnsUpdate,
     instance_name: &str,
@@ -110,44 +115,17 @@ fn send_update(
     }
 }
 
-fn send_dummy_update_for_development() {
-    // Send a few made up IPv4 for now.
-    let ipv4_addresses =
-        [Ipv4Addr::new(192, 168, 1, 1), Ipv4Addr::new(10, 0, 0, 1), Ipv4Addr::new(172, 16, 254, 1)];
-
-    // Map rust representation to C array
-    let ipv6_addresses = [
-        Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1),
-        Ipv6Addr::new(0xfe80, 0, 0, 0, 0, 0, 0, 1),
-        Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1), // Loopback address
-    ];
-
-    send_update(
-        AdbMdnsUpdate::Create,
-        "testInstance",
-        "testService",
-        &ipv4_addresses,
-        &ipv6_addresses,
-        9021986,
-    );
-}
-
 fn network_changed() {
     // log::info!("Network change detected");
 }
 
-fn start_dummy_updates_thread() {
-    thread::spawn(move || loop {
-        log::debug!("Sending dummy update");
-        send_dummy_update_for_development();
-        thread::sleep(Duration::from_secs(15));
-    });
-}
-
 fn run() {
     log::info!("ADB mdns is starting...");
-    start_dummy_updates_thread();
     netwatch::monitor_network_changes(network_changed);
+
+    let zero_config = ZeroConfig::new();
+    let zero_config_driver = ZeroConfigDriver::new(zero_config);
+    zero_config_driver.run_forever();
 }
 
 // These enum and function must be kept in sync with the bridge header file
@@ -251,12 +229,15 @@ impl log::Log for AdbLogger {
 /// 3. Accept NUL-terminated strings for all const char* parameters
 /// 4. Accept a buffer of `num_ipv4s` 32-bit values in `ipv4s` (expected to be network order octets)
 /// 5. Accept a buffer of bytes in `ipv6s` which is the size of `num_ipv6s` * 16 (expected to be a sequence of sequences of octets, flattened).
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn adbmdns_start(
     log_callback: AdbLoggerCallback,
     event_callback: EventCallback,
 ) {
-    std::env::set_var("RUST_BACKTRACE", "1");
+    // SAFETY: No other thread can be writing to this environment variable.
+    unsafe {
+        std::env::set_var("RUST_BACKTRACE", "1");
+    }
 
     // SAFETY: Assume adb gave us correct logger callback
     unsafe {
