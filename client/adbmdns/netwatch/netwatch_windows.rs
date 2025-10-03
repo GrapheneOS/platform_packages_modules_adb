@@ -12,6 +12,38 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub fn monitor_network_changes(_callback: impl Fn()) {
-    log::info!("Network monitoring is not implemented on Windows");
+mod wlan_tracker;
+
+use log::info;
+use std::thread;
+use std::thread::sleep;
+use std::time::Duration;
+use wlan_tracker::WlanTracker;
+
+fn listen_forever(callback: impl Fn() + Send + 'static) {
+    let mut tracker = WlanTracker::new(callback);
+    loop {
+        let result = tracker.start();
+        match result {
+            Ok(_) => {
+                info!("Waiting for WLAN events.");
+                thread::park()
+            }
+            Err(err) => {
+                log::error!(
+                    "Failed to register a WLAN listener: {:?}. Waiting 60 sec to try again.",
+                    err
+                );
+                sleep(Duration::from_secs(60));
+                continue;
+            }
+        }
+    }
+}
+
+/// Starts a background thread that registers a listener and parks
+pub fn monitor_network_changes(callback: impl Fn() + Send + 'static) {
+    thread::spawn(move || {
+        listen_forever(callback);
+    });
 }

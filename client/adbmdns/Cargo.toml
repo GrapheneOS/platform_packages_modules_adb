@@ -17,3 +17,11 @@ zerocopy = { version = "0.8.26", features = ["derive"] }
 libc = "0.2.174"
 anyhow = "1.0.99"
 nix = { version = "0.29.0", features = ["socket", "uio"] }
+
+[dependencies.windows-sys]
+version = "0.61.1"
+features = [
+    "Win32_Foundation",
+    "Win32_Networking_WinSock",
+    "Win32_NetworkManagement_WiFi",
+]
