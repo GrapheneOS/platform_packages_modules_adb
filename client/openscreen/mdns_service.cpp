@@ -175,7 +175,3 @@ void StartOpenScreenDiscovery() {
         }
     });
 }
-
-bool IsOpenScreenStarted() {
-    return g_state != nullptr;
-}

@@ -17,4 +17,3 @@
 #pragma once
 
 void StartOpenScreenDiscovery();
-bool IsOpenScreenStarted();

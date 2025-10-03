@@ -142,7 +142,7 @@ bool adb_secure_connect_by_service_name(const std::string& instance_name) {
 }
 
 std::string mdns_check() {
-    if (!IsOpenScreenStarted()) {
+    if (!mdns::is_enabled()) {
         return "ERROR: mdns discovery disabled";
     }
 
