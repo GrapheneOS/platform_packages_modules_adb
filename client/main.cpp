@@ -137,7 +137,7 @@ int adb_server_main(int is_daemon, const std::string& socket_spec, const char* o
         init_mdns_transport_discovery();
     }
 
-    if (!getenv("ADB_USB") || strcmp(getenv("ADB_USB"), "0") != 0) {
+    if (is_usb_enabled()) {
         if (is_libusb_enabled()) {
             libusb::usb_init();
         } else {
