@@ -52,6 +52,11 @@ using namespace std::chrono_literals;
 // Bonjour handles for registered services.
 static DNSServiceRef mdns_refs[kNumADBDNSServices];
 
+// Depending on how adbd registers services (mdnsd vs NsdManager), the operation can be
+// performed right away (mdnsd) or later when the framework starts (NsdManager).
+// In the latter case, we store the tcp port until we can request a registration.
+static uint16_t adb_wifi_tcp_port = 0;
+
 static AdbdAuthContext* auth_ctx;
 void adbd_mdns_init(AdbdAuthContext* ctx) {
     auth_ctx = ctx;
@@ -250,6 +255,13 @@ class MdnsWorkerThread {
 // Public interface/////////////////////////////////////////////////////////////
 
 void register_adb_tcp_service(int tcp_port) {
+    // If we register service with framework, we defer registration until framework is started.
+    // We will need to "remember" what tcp port was registered. We save it here.
+    adb_wifi_tcp_port = tcp_port;
+
+    if (com_android_adbdauth_flags_use_tls_lifecycle()) {
+        return;
+    }
     MdnsWorkerThread::Get().AddTask([tcp_port] {
         std::string hostname = ReadDeviceGuid();
         VLOG(MDNS) << "Registering tcp service on port: " << tcp_port;
@@ -302,9 +314,30 @@ void unregister_adb_tls_service() {
     });
 }
 
+void on_framework_connected() {
+    if (com_android_adbdauth_flags_use_tls_lifecycle() && adb_wifi_tcp_port != 0) {
+        // This callback runs on adbd_auth thread. Since we are calling back into it, it is a good
+        // idea to run on the mdns thread in order to avoid deadlocks.
+        MdnsWorkerThread::Get().AddTask([] {
+            auto service_name = ReadDeviceGuid();
+            if (service_name.empty()) {
+                LOG(WARNING) << "Unable to register TCP: DeviceGUID is empty";
+                return;
+            }
+
+            if (__builtin_available(android 37, *)) {
+                LOG(INFO) << "Registering TCP with framework '" << service_name << "'";
+                adbd_auth_register_service(auth_ctx, service_name.c_str(),
+                                           kADBDNSServices[kADBTransportServiceRefIndex],
+                                           adb_wifi_tcp_port);
+            }
+        });
+    }
+}
 #else
 void register_adb_tcp_service(int tcp_port) {}
 void register_adb_tls_service(int tls_port) {}
 void unregister_adb_tls_service() {}
 void adbd_mdns_init(AdbdAuthContext* ctx) {}
+void on_framework_connected() {}
 #endif  // defined(__ANDROID__)

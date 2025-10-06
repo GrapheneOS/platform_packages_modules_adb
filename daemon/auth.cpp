@@ -242,15 +242,20 @@ static void adbd_key_removed(const char* public_key, size_t len) {
 }
 
 void adbd_auth_init() {
-    // TODO: We have reached the point where we need to refactor this.
-    // Create a Framework class to abstract all this. Pass that object to each
-    // auth and wifi component so they can assign their own callbacks without having
-    // to expose their internals.
     auto adbd_auth_version = adbd_auth_get_max_version();
-    auto max_handled_version = 2u;
+    auto max_handled_version = 3u;
     LOG(INFO) << std::format("adbd_auth detected v={} (max_handled={})", adbd_auth_version,
                              max_handled_version);
     if (adbd_auth_version >= max_handled_version) {
+        AdbdAuthCallbacksV3 cb{};
+        cb.version = 3;
+        cb.key_authorized = adbd_auth_key_authorized;
+        cb.key_removed = adbd_key_removed;
+        cb.start_adbd_wifi = enable_wifi_debugging;
+        cb.stop_adbd_wifi = disable_wifi_debugging;
+        cb.on_framework_connected = on_framework_connected;
+        auth_ctx = adbd_auth_new(&cb);
+    } else if (adbd_auth_version == 2) {
         AdbdAuthCallbacksV2 cb{};
         cb.version = 2;
         cb.key_authorized = adbd_auth_key_authorized;
