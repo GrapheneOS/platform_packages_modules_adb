@@ -69,11 +69,20 @@ static std::string list_mdns_services() {
             ipv6->append(address.to_string());
         }
 
+        s->set_mdns_service_version(service.attributes.contains("v") ? service.attributes.at("v")
+                                                                     : "1");
+
         if (service.attributes.contains("name")) {
             s->set_product_model(service.attributes.at("name"));
         }
         if (service.attributes.contains("api")) {
             s->set_build_version_sdk_full(service.attributes.at("api"));
+        }
+        if (service.attributes.contains("given_name")) {
+            s->set_given_name(service.attributes.at("given_name"));
+        }
+        if (service.attributes.contains("serial")) {
+            s->set_serial(service.attributes.at("serial"));
         }
     });
 

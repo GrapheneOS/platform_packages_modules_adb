@@ -137,6 +137,15 @@ message MdnsService {
 
     // Comes from device property "ro.build.version.sdk_full"
     optional string build_version_sdk_full = 8;
+
+    // The name of the device, e.g. "Foo's Pixel 10".
+    optional string given_name = 9;
+
+    // Comes from device property "ro.serialno"
+    optional string serial = 10;
+
+    // Used by clients to manage changes to the MdnsService.
+    optional string mdns_service_version = 11;
 }
 
 
