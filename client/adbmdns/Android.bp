@@ -17,6 +17,9 @@ rust_library_rlib {
     target: {
         windows: {
             enabled: true,
+            rustlibs: [
+                "libwindows_sys",
+            ],
         },
         darwin: {
             sanitize: {
