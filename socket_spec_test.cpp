@@ -342,6 +342,9 @@ TEST(socket_spec, socket_spec_listen_connect_vsock_failure) {
     unique_fd server_fd, client_fd;
 
     server_fd.reset(socket_spec_listen("vsock:1234", &error, &port));
+    if (server_fd.get() == -1 && vsockUnsupportedByKernel()) {
+        GTEST_SKIP() << "vsock not supported on this kernel";
+    }
     ASSERT_NE(server_fd.get(), -1) << error;
     ASSERT_EQ(port, 1234);
 
