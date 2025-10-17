@@ -349,13 +349,18 @@ TEST(socket_spec, socket_spec_listen_connect_vsock_failure) {
     ASSERT_EQ(port, 1234);
 
     // Test with port passed as an argument.
-    // On a Linux host, the CID for the host is 2 (VMADDR_CID_HOST).
     port = 1234;
-    EXPECT_FALSE(socket_spec_connect(&client_fd, "vsock:2", &port, &serial, &error));
+    EXPECT_FALSE(socket_spec_connect(&client_fd, "vsock:1", &port, &serial, &error));
+    EXPECT_EQ(error,
+              "Only port 5555 is supported for vsock connections to any CID other than 2. Got "
+              "1:1234.");
 
     // Test with port passed in the spec string.
     port = 0;
-    EXPECT_FALSE(socket_spec_connect(&client_fd, "vsock:2:1234", &port, &serial, &error));
+    EXPECT_FALSE(socket_spec_connect(&client_fd, "vsock:1:1234", &port, &serial, &error));
+    EXPECT_EQ(error,
+              "Only port 5555 is supported for vsock connections to any CID other than 2. Got "
+              "1:1234.");
 #endif  // ADB_HOST
 #endif  // __linux__
 }
