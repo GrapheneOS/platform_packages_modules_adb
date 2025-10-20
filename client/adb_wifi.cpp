@@ -26,6 +26,7 @@
 #include <android-base/file.h>
 #include <android-base/parsenetaddress.h>
 #include "client/pairing/pairing_client.h"
+#include "client/transport_mdns.h"
 
 #include "adb_auth.h"
 #include "adb_known_hosts.pb.h"

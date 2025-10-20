@@ -156,6 +156,20 @@ the `IS` is started.
            │                           │
 ```
 
+## ADB Installation Strategy
+
+If the `--incremental` flag is specified, ADB will always use incremental
+install, even if some apk files are not v4-signed.
+
+If any other installation mode flag (`--streaming`, `--no-streaming`,
+`--no-incremental`) is specified, ADB will never use incremental install, even
+if some apk files are v4-signed.
+
+If none of the installation mode flags above is specified, and all apk files are
+v4-signed, ADB will use incremental install by default and fall back to regular
+install when incremental install fails or the device doesn't support incremental
+installations.
+
 ## Learn more
 
 There is more documentation about this topic which is unfortunately internal only.

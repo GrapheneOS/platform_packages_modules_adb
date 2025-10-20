@@ -30,6 +30,7 @@
 #include <android-base/stringprintf.h>
 #include <android-base/strings.h>
 #include <cutils/sockets.h>
+#include "android-base/file.h"
 
 #include "adb.h"
 #include "adb_io.h"
@@ -257,6 +258,13 @@ static void wait_service(unique_fd fd, std::string serial, TransportId transport
 #endif
 
 #if ADB_HOST
+
+static void list_mdns_known_hosts(const unique_fd& fd) {
+    std::string response;
+    android::base::ReadFileToString(known_wifi_hosts_file.KeyStorePath(), &response);
+    SendProtocolString(fd.get(), response);
+}
+
 asocket* host_service_to_socket(std::string_view name, std::string_view serial,
                                 TransportId transport_id) {
     if (name == "track-devices") {
@@ -290,6 +298,10 @@ asocket* host_service_to_socket(std::string_view name, std::string_view serial,
         return create_local_socket(std::move(fd));
     } else if (android::base::ConsumePrefix(&name, HostServices::kTrackMdnsServices)) {
         return create_mdns_tracker();
+    } else if (android::base::ConsumePrefix(&name, HostServices::kListMdnsKnownHosts)) {
+        unique_fd fd = create_service_thread(
+                "list-mdns-known-hosts", std::bind(list_mdns_known_hosts, std::placeholders::_1));
+        return create_local_socket(std::move(fd));
     }
     return nullptr;
 }

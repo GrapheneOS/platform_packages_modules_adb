@@ -15,9 +15,9 @@
  */
 
 #include "client/mdns_utils.h"
-#include "client/openscreen/mdns_service_info.h"
 
 #include <gtest/gtest.h>
+#include "client/discovered_services.h"
 
 namespace mdns {
 
@@ -173,25 +173,25 @@ TEST(mdns_utils, mdns_parse_instance_name) {
 
 TEST(mdns_utils, mdns_split_txt_record_empty) {
     std::string empty;
-    auto [status, key, value] = ParseTxtKeyValue(empty);
+    auto [status, key, value] = ServiceInfo::ParseTxtKeyValue(empty);
     EXPECT_FALSE(status);
 }
 
 TEST(mdns_utils, mdns_split_txt_record_just_splitter) {
     std::string just_splitter = "=";
-    auto [status, key, value] = ParseTxtKeyValue(just_splitter);
+    auto [status, key, value] = ServiceInfo::ParseTxtKeyValue(just_splitter);
     EXPECT_FALSE(status);
 }
 
 TEST(mdns_utils, mdns_split_txt_record_no_key) {
     std::string no_key = "=value";
-    auto [status, key, value] = ParseTxtKeyValue(no_key);
+    auto [status, key, value] = ServiceInfo::ParseTxtKeyValue(no_key);
     EXPECT_FALSE(status);
 }
 
 TEST(mdns_utils, mdns_split_txt_record_no_value) {
     std::string no_value = "key=";
-    auto [status, key, value] = ParseTxtKeyValue(no_value);
+    auto [status, key, value] = ServiceInfo::ParseTxtKeyValue(no_value);
     EXPECT_TRUE(status);
     EXPECT_TRUE(key == "key");
     EXPECT_TRUE(value.empty());
@@ -199,13 +199,13 @@ TEST(mdns_utils, mdns_split_txt_record_no_value) {
 
 TEST(mdns_utils, mdns_split_txt_record_no_split) {
     std::string no_split = "keyvalue";
-    auto [status, key, value] = ParseTxtKeyValue(no_split);
+    auto [status, key, value] = ServiceInfo::ParseTxtKeyValue(no_split);
     EXPECT_FALSE(status);
 }
 
 TEST(mdns_utils, mdns_split_txt_record_normal) {
     std::string normal = "key=value";
-    auto [status, key, value] = ParseTxtKeyValue(normal);
+    auto [status, key, value] = ServiceInfo::ParseTxtKeyValue(normal);
     EXPECT_TRUE(status);
     EXPECT_TRUE(key == "key");
     EXPECT_TRUE(value == "value");

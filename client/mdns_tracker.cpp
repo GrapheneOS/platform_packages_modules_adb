@@ -38,7 +38,7 @@ static std::list<MdnsTracker*> mdns_trackers [[clang::no_destroy]];
 static std::string list_mdns_services() {
     adb::proto::MdnsServices services;
 
-    mdns::discovered_services.ForAllServices([&](const mdns::ServiceInfo& service) {
+    mdns::discovered_services.ForAllServices([&](const ServiceInfo& service) {
         adb::proto::MdnsService* s = nullptr;
 
         if (service.service == ADB_FULL_MDNS_SERVICE_TYPE(ADB_MDNS_SERVICE_TYPE)) {
@@ -66,14 +66,23 @@ static std::string list_mdns_services() {
 
         for (auto& address : service.v6_addresses) {
             auto ipv6 = s->add_ipv6();
-            ipv6->append(mdns::to_string(address));
+            ipv6->append(address.to_string());
         }
+
+        s->set_mdns_service_version(service.attributes.contains("v") ? service.attributes.at("v")
+                                                                     : "1");
 
         if (service.attributes.contains("name")) {
             s->set_product_model(service.attributes.at("name"));
         }
         if (service.attributes.contains("api")) {
             s->set_build_version_sdk_full(service.attributes.at("api"));
+        }
+        if (service.attributes.contains("given_name")) {
+            s->set_given_name(service.attributes.at("given_name"));
+        }
+        if (service.attributes.contains("serial")) {
+            s->set_serial(service.attributes.at("serial"));
         }
     });
 

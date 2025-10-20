@@ -17,9 +17,11 @@
 #include <gtest/gtest.h>
 
 #include "discovered_services.h"
-#include "openscreen/mdns_service_info.h"
 
 using namespace mdns;
+
+const IPv4Address kV4LoopbackAddress{127, 0, 0, 1};
+const IPv6Address kV6LoopbackAddress{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1};
 
 TEST(DiscoveredServicesTest, simpleUpdate) {
     DiscoveredServices services;
@@ -35,7 +37,7 @@ TEST(DiscoveredServicesTest, simpleUpdate) {
     ASSERT_EQ("foo", s.value().instance);
     ASSERT_EQ("bar", s.value().service);
 
-    service.v4_address = openscreen::IPAddress::kV4LoopbackAddress();
+    service.v4_address = kV4LoopbackAddress;
     auto updated = services.ServiceUpdated(service);
     ASSERT_TRUE(updated);
 }
@@ -46,7 +48,7 @@ TEST(DiscoveredServicesTest, NonUpdateV4) {
     ServiceInfo service;
     service.instance = "foo";
     service.service = "bar";
-    service.v4_address = openscreen::IPAddress::kV4LoopbackAddress();
+    service.v4_address = kV4LoopbackAddress;
 
     services.ServiceCreated(service);
     auto updated = services.ServiceUpdated(service);
@@ -59,7 +61,7 @@ TEST(DiscoveredServicesTest, NonUpdateV6) {
     ServiceInfo service;
     service.instance = "foo";
     service.service = "bar";
-    service.v6_addresses = {openscreen::IPAddress::kV6LoopbackAddress()};
+    service.v6_addresses = {kV6LoopbackAddress};
 
     services.ServiceCreated(service);
     auto updated = services.ServiceUpdated(service);
@@ -72,7 +74,7 @@ TEST(DiscoveredServicesTest, NonUpdateV6WithDifferentSet) {
     ServiceInfo service;
     service.instance = "foo";
     service.service = "bar";
-    service.v6_addresses = {openscreen::IPAddress::kV6LoopbackAddress()};
+    service.v6_addresses = {kV6LoopbackAddress};
 
     services.ServiceCreated(service);
     auto updated = services.ServiceUpdated(service);

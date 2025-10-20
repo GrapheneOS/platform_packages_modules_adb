@@ -46,6 +46,12 @@ using namespace std::literals;
 
 namespace incremental {
 
+enum class CheckPolicy {
+    NORMAL,
+    // Allows missing signatures for files that would normally require a v4 signature.
+    ALLOW_MISSING_SIGNATURES,
+};
+
 // Used to be sent as arguments via install-incremental, to describe the IncrementalServer database.
 class ISDatabaseEntry {
   public:
@@ -190,7 +196,7 @@ static std::optional<std::pair<unique_fd, size_t>> open_and_get_size(const std::
 // - For unsigned files in the list, the caller is expected to send them through stdin before
 //   streaming the signed ones, in the order specified by the list.
 static std::optional<std::vector<std::unique_ptr<ISDatabaseEntry>>> build_database(
-        const Files& files, std::string* error) {
+        const Files& files, CheckPolicy check_policy, std::string* error) {
     std::unordered_map<std::string, std::pair<std::vector<char>, int32_t>> signatures_by_file;
 
     for (const std::string& file : files) {
@@ -199,8 +205,13 @@ static std::optional<std::vector<std::unique_ptr<ISDatabaseEntry>>> build_databa
             return {};
         }
         if (requires_v4_signature(file) && signature_and_tree_size->first.empty()) {
-            *error = std::format("V4 signature missing for '{}'", file);
-            return {};
+            std::string error_msg = std::format("V4 signature missing for '{}'", file);
+            if (check_policy == CheckPolicy::ALLOW_MISSING_SIGNATURES) {
+                fprintf(stderr, "%s.\n", error_msg.c_str());
+            } else {
+                *error = std::move(error_msg);
+                return {};
+            }
         }
         signatures_by_file[file] = std::move(*signature_and_tree_size);
     }
@@ -259,7 +270,7 @@ static std::optional<std::vector<std::unique_ptr<ISDatabaseEntry>>> build_databa
 }
 
 // Opens a connection and sends install-incremental to the device along with the database.
-// Returns a socket FD connected to the `abb` deamon on device, where writes to it go to `pm`
+// Returns a socket FD connected to the `abb` daemon on device, where writes to it go to `pm`
 // shell's stdin and reads from it come from `pm` shell's stdout.
 static std::optional<unique_fd> connect_and_send_database(
         const std::vector<std::unique_ptr<ISDatabaseEntry>>& database, const Args& passthrough_args,
@@ -281,7 +292,7 @@ static std::optional<unique_fd> connect_and_send_database(
     return connection_fd;
 }
 
-bool can_install(const Files& files) {
+bool should_use_incremental_by_default(const Files& files) {
     for (const auto& file : files) {
         struct stat st;
         if (stat(file.c_str(), &st)) {
@@ -383,6 +394,8 @@ static std::optional<Process> start_inc_server_and_stream_signed_files(
     // We spawn an incremental server that will be up until all blocks have been fed to the
     // Package Manager. This could take a long time depending on the size of the files to
     // stream so we use a process able to outlive adb.
+    // Note that there might not be any signed files in the database, in which case we still need
+    // to spawn the server to process the output from `pm`.
     std::vector<std::string> args{
             "inc-server",
             std::to_string(cast_handle_to_int(adb_get_os_handle(connection_fd.get()))),
@@ -421,10 +434,10 @@ static std::optional<Process> start_inc_server_and_stream_signed_files(
     return child;
 }
 
-std::optional<Process> install(const Files& files, const Args& passthrough_args,
-                               std::string* error) {
+static std::optional<Process> install(const Files& files, const Args& passthrough_args,
+                                      CheckPolicy check_policy, std::string* error) {
     std::optional<std::vector<std::unique_ptr<ISDatabaseEntry>>> database =
-            build_database(files, error);
+            build_database(files, check_policy, error);
     if (!database.has_value()) {
         return {};
     }
@@ -441,7 +454,9 @@ std::optional<Process> install(const Files& files, const Args& passthrough_args,
 
 std::optional<Process> install(const Files& files, const Args& passthrough_args, bool silent) {
     std::string error;
-    std::optional<Process> res = install(files, passthrough_args, &error);
+    std::optional<Process> res =
+            install(files, passthrough_args,
+                    silent ? CheckPolicy::NORMAL : CheckPolicy::ALLOW_MISSING_SIGNATURES, &error);
     if (!res.has_value() && !silent) {
         fprintf(stderr, "%s.\n", error.c_str());
     }

@@ -20,7 +20,12 @@
 
 #include <unistd.h>
 
+#ifdef __linux__
+#include <linux/vm_sockets.h>
+#endif
+
 #include <android-base/file.h>
+#include <android-base/properties.h>
 #include <android-base/stringprintf.h>
 #include <gtest/gtest.h>
 
@@ -219,6 +224,142 @@ TEST(socket_spec, socket_spec_listen_connect_tcp) {
     EXPECT_NE(client_fd.get(), -1);
 }
 
+#ifdef __linux__
+bool vsockUnsupportedByKernel() {
+    return errno == ENODEV || errno == EPFNOSUPPORT || errno == EAFNOSUPPORT;
+}
+#endif
+
+TEST(socket_spec, socket_spec_listen_connect_vsock_success) {
+#ifndef __linux__
+    GTEST_SKIP() << "vsock is only supported on Linux";
+#else
+    std::string error, serial;
+    int port = 0;
+    unique_fd server_fd, client_fd;
+
+    // Check if the port is available before trying to listen on it.
+    // On cuttlefish devices, there is already a vsock server, for adb, running on port 5555.
+    // So there's no need to setup another one (which would fail).
+    sockaddr_vm addr{};
+    addr.svm_family = AF_VSOCK;
+    addr.svm_port = 5555;
+#if ADB_HOST
+    addr.svm_cid = 2;
+#else
+    addr.svm_cid = 1;
+#endif
+    socklen_t addr_len = sizeof(addr);
+    unique_fd check_fd(socket(AF_VSOCK, SOCK_STREAM, 0));
+    if (check_fd.get() == -1 && vsockUnsupportedByKernel()) {
+        GTEST_SKIP() << "vsock not supported on this kernel";
+    }
+    EXPECT_NE(check_fd.get(), -1);
+    if (!bind(check_fd.get(), reinterpret_cast<struct sockaddr*>(&addr), addr_len)) {
+        check_fd.reset();
+        // No existing vsock server on port 5555, so create one (testing on a physical device).
+        server_fd.reset(socket_spec_listen("vsock:5555", &error, &port));
+        ASSERT_NE(server_fd.get(), -1) << error;
+        ASSERT_EQ(port, 5555);
+    }
+#if ADB_HOST
+    // Test with port passed as an argument.
+    // On a Linux host, the CID for the host is 2 (VMADDR_CID_HOST).
+    port = 5555;
+    bool connected = socket_spec_connect(&client_fd, "vsock:2", &port, &serial, &error);
+    // On old kernels, either vsock entirely, or the host CID, is not supported. Check for
+    // "Connection refused" or "No such device", which indicate this case. Skip the test
+    // case since it's not possible on the device under test.
+    if (!connected && (errno == ECONNREFUSED || errno == ENODEV)) {
+        GTEST_SKIP() << "vsock host not supported on this kernel";
+    }
+
+    EXPECT_NE(client_fd.get(), -1);
+    client_fd.reset();
+
+    // Test with port passed in the spec string.
+    port = 0;
+    EXPECT_TRUE(socket_spec_connect(&client_fd, "vsock:2:5555", &port, &serial, &error))
+            << errno << ": " << strerror(errno);
+    EXPECT_NE(client_fd.get(), -1);
+
+    // On the host, any vsock port is allowed.
+    server_fd.reset(socket_spec_listen("vsock:1234", &error, &port));
+    port = 1234;
+    EXPECT_TRUE(socket_spec_connect(&client_fd, "vsock:2", &port, &serial, &error))
+            << errno << ": " << strerror(errno);
+    EXPECT_NE(client_fd.get(), -1);
+#else
+    // On the device, only the loopback CID 1 will work, but only on new enough kernels and only on
+    // Android S and above.
+    if (android::base::GetIntProperty("ro.build.version.sdk", 0) <= 30) {
+        GTEST_SKIP() << "vsock loopback not supported on Android R and below";
+    }
+    // Test with port passed as an argument.
+    port = 5555;
+    // On old kernels, either vsock entirely, or the loopback CID, is not supported. Check for
+    // "Connection refused" or "No such device", which indicate this case. Skip the test
+    // case since it's not possible on the device under test.
+    bool connected = socket_spec_connect(&client_fd, "vsock:1", &port, &serial, &error);
+    if (!connected) {
+      if (vsockUnsupportedByKernel()) {
+        GTEST_SKIP() << "vsock not supported on this kernel";
+      }
+      if (errno == ECONNREFUSED) {
+        GTEST_SKIP() << "vsock loopback not supported on this kernel";
+      }
+      if (errno == ETIMEDOUT) {
+        GTEST_SKIP() << "connection is flaky on this device, skip the test instead of flaking";
+      }
+    }
+
+    EXPECT_TRUE(connected) << errno << ": " << strerror(errno);
+    EXPECT_NE(client_fd.get(), -1);
+    client_fd.reset();
+
+    // Test with port passed in the spec string.
+    port = 0;
+    connected = socket_spec_connect(&client_fd, "vsock:1:5555", &port, &serial, &error);
+    if (!connected && errno == ETIMEDOUT) {
+        GTEST_SKIP() << "connection is flaky on this device, skip the test instead of flaking";
+    }
+
+    EXPECT_TRUE(connected) << errno << ": " << strerror(errno);
+    EXPECT_NE(client_fd.get(), -1);
+#endif  // ADB_HOST
+#endif  // __linux__
+}
+
+TEST(socket_spec, socket_spec_listen_connect_vsock_failure) {
+#ifndef __linux__
+    GTEST_SKIP() << "vsock is only supported on Linux";
+#else
+#if ADB_HOST
+    GTEST_SKIP() << "socket adb port check is skipped on host";
+#else
+    std::string error, serial;
+    int port = 0;
+    unique_fd server_fd, client_fd;
+
+    server_fd.reset(socket_spec_listen("vsock:1234", &error, &port));
+    if (server_fd.get() == -1 && vsockUnsupportedByKernel()) {
+        GTEST_SKIP() << "vsock not supported on this kernel";
+    }
+    ASSERT_NE(server_fd.get(), -1) << error;
+    ASSERT_EQ(port, 1234);
+
+    // Test with port passed as an argument.
+    // On a Linux host, the CID for the host is 2 (VMADDR_CID_HOST).
+    port = 1234;
+    EXPECT_FALSE(socket_spec_connect(&client_fd, "vsock:2", &port, &serial, &error));
+
+    // Test with port passed in the spec string.
+    port = 0;
+    EXPECT_FALSE(socket_spec_connect(&client_fd, "vsock:2:1234", &port, &serial, &error));
+#endif  // ADB_HOST
+#endif  // __linux__
+}
+
 TEST(socket_spec, socket_spec_connect_failure) {
     std::string error, serial;
     int port;
@@ -230,6 +371,7 @@ TEST(socket_spec, socket_spec_connect_failure) {
     EXPECT_FALSE(socket_spec_connect(&client_fd, "vsock:5", &port, &serial, &error));
     EXPECT_FALSE(socket_spec_connect(&client_fd, "vsock:5:x", &port, &serial, &error));
     EXPECT_FALSE(socket_spec_connect(&client_fd, "sneakernet:", &port, &serial, &error));
+    EXPECT_FALSE(socket_spec_connect(&client_fd, "vsock:5:4321", &port, &serial, &error));
 }
 
 TEST(socket_spec, socket_spec_listen_connect_localfilesystem) {

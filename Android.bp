@@ -263,10 +263,11 @@ cc_library_host_static {
     defaults: ["adb_defaults"],
 
     srcs: libadb_srcs + [
-        "client/openscreen/mdns_service_info.cpp",
+        "client/openscreen/mdns_service.cpp",
         "client/openscreen/platform/logging.cpp",
         "client/openscreen/platform/task_runner.cpp",
         "client/openscreen/platform/udp_socket.cpp",
+        "client/adbmdns/adbmdns.cpp",
         "client/auth.cpp",
         "client/adb_wifi.cpp",
         "client/detach.cpp",
@@ -392,6 +393,7 @@ cc_test_host {
         "libprotobuf-cpp-full",
         "libssl",
         "libusb",
+        "libadbmdns_bridge",
     ],
 
     target: {
@@ -483,6 +485,7 @@ cc_defaults {
         "libz",
         "libziparchive",
         "libzstd",
+        "libadbmdns_bridge",
     ],
 
     // Don't add anything here, we don't want additional shared dependencies
@@ -611,6 +614,9 @@ cc_library_static {
             shared_libs: [
                 "adbd_flags_c_lib",
             ],
+            static_libs: [
+                "android_adbdauth_flags_cc_lib",
+            ],
         },
         recovery: {
             exclude_shared_libs: [
@@ -701,6 +707,7 @@ cc_library {
             ],
             static_libs: [
                 "android_trade_in_mode_flags_cc_lib",
+                "android_adbdauth_flags_cc_lib",
             ],
         },
         recovery: {
@@ -838,6 +845,7 @@ cc_binary {
         android: {
             static_libs: [
                 "android_trade_in_mode_flags_cc_lib",
+                "android_adbdauth_flags_cc_lib",
             ],
             shared_libs: [
                 "adbd_flags_c_lib",
@@ -851,6 +859,13 @@ cc_binary {
     defaults: [
         "adbd_binary_defaults",
     ],
+    target: {
+        android: {
+            static_libs: [
+                "android_adbdauth_flags_cc_lib",
+            ],
+        },
+    },
     recovery: true,
     stem: "adbd",
 }
@@ -958,6 +973,7 @@ cc_test {
             ],
             static_libs: [
                 "android_trade_in_mode_flags_cc_lib",
+                "android_adbdauth_flags_cc_lib",
             ],
         },
     },
@@ -1062,6 +1078,7 @@ cc_library_host_static {
         "libutils",
         "libz",
         "libziparchive",
+        "libadbmdns_bridge",
     ],
     proto: {
         type: "lite",
@@ -1108,6 +1125,7 @@ cc_test_host {
         "libutils",
         "libz",
         "libziparchive",
+        "libadbmdns_bridge",
     ],
     target: {
         windows: {

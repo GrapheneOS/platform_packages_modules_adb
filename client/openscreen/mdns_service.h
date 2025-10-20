@@ -16,9 +16,4 @@
 
 #pragma once
 
-#include <string>
-
-namespace HostServices {
-constexpr const char* kTrackMdnsServices = "track-mdns-services";
-constexpr const char* kListMdnsKnownHosts = "list-mdns-known-hosts";
-}
+void StartOpenScreenDiscovery();

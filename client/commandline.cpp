@@ -60,6 +60,7 @@ using namespace std::string_literals;
 #include "adb_host.pb.h"
 #include "adb_install.h"
 #include "adb_io.h"
+#include "adb_known_hosts.pb.h"
 #include "adb_unique_fd.h"
 #include "adb_utils.h"
 #include "app_processes.pb.h"
@@ -1958,9 +1959,23 @@ int adb_commandline(int argc, const char** argv) {
             }
             printf("List of discovered mdns services\n");
             return adb_query_command("host:mdns:services");
+        } else if (!strcmp(argv[0], "list-known-hosts")) {
+            if (argc != 2) {
+                error_exit("mdns %s takes two arguments", argv[0]);
+            }
+
+            std::string service = "host:"s + HostServices::kListMdnsKnownHosts;
+            if (!strcmp(argv[1], "--proto-binary")) {
+                return adb_connect_command(service);
+            } else if (!strcmp(argv[1], "--proto-text")) {
+                ProtoBinaryToText<adb::proto::AdbKnownHosts> callback("\nKnown mDNS hosts:\n");
+                return adb_connect_command(service, nullptr, &callback);
+            } else {
+                error_exit("unknown mdns command [%s] flag '%s'", argv[0], argv[1]);
+            }
         } else if (!strcmp(argv[0], "track-services")) {
             if (argc != 2) {
-                error_exit("mdns %s take two arguments", argv[0]);
+                error_exit("mdns %s takes two arguments", argv[0]);
             }
 
             std::string service = "host:"s + HostServices::kTrackMdnsServices;
@@ -2185,11 +2200,11 @@ int adb_commandline(int argc, const char** argv) {
             }
         }
     } else if (!strcmp(argv[0], "inc-server")) {
-        if (argc < 4) {
+        if (argc < 3) {
 #ifdef _WIN32
-            error_exit("usage: adb inc-server CONNECTION_HANDLE OUTPUT_HANDLE FILE1 FILE2 ...");
+            error_exit("usage: adb inc-server CONNECTION_HANDLE OUTPUT_HANDLE [FILE1 FILE2 ...]");
 #else
-            error_exit("usage: adb inc-server CONNECTION_FD OUTPUT_FD FILE1 FILE2 ...");
+            error_exit("usage: adb inc-server CONNECTION_FD OUTPUT_FD [FILE1 FILE2 ...]");
 #endif
         }
         int connection_fd = atoi(argv[1]);

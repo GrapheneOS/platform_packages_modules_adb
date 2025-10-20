@@ -250,6 +250,8 @@ void adb_wait_for_device_initialization();
 // When ssh-forwarding to a remote adb server, kill-server is almost never what you actually want,
 // and unfortunately, many other tools issue it. This adds a knob to reject kill-servers.
 void adb_set_reject_kill_server(bool reject);
+
+bool is_usb_enabled();
 #endif
 
 void usb_init();

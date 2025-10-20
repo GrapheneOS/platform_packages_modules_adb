@@ -32,62 +32,21 @@
 #include <android-base/stringprintf.h>
 #include <android-base/strings.h>
 
-#include <discovery/common/config.h>
-#include <discovery/common/reporting_client.h>
-#include <discovery/public/dns_sd_service_factory.h>
-#include <discovery/public/dns_sd_service_watcher.h>
-#include <platform/api/network_interface.h>
-#include <platform/api/serial_delete_ptr.h>
-#include <platform/base/error.h>
-#include <platform/base/interface_info.h>
-
 #include "adb_client.h"
 #include "adb_mdns.h"
 #include "adb_trace.h"
 #include "adb_utils.h"
 #include "adb_wifi.h"
+#include "client/adbmdns/adbmdns.h"
+#include "client/adbmdns/adbmdns_bridge.h"
 #include "client/discovered_services.h"
 #include "client/mdns_utils.h"
-#include "client/openscreen/platform/task_runner.h"
+#include "client/openscreen/mdns_service.h"
 #include "fdevent/fdevent.h"
 #include "mdns_tracker.h"
 #include "sysdeps.h"
 
 namespace {
-
-using namespace mdns;
-using namespace openscreen;
-using ServiceWatcher = discovery::DnsSdServiceWatcher<ServiceInfo>;
-using ServicesUpdatedState = ServiceWatcher::ServicesUpdatedState;
-
-struct DiscoveryState;
-DiscoveryState* g_state = nullptr;
-
-class DiscoveryReportingClient : public discovery::ReportingClient {
-  public:
-    void OnFatalError(Error error) override {
-        LOG(ERROR) << "Encountered fatal discovery error: " << error;
-        got_fatal_ = true;
-    }
-
-    void OnRecoverableError(Error error) override {
-        LOG(ERROR) << "Encountered recoverable discovery error: " << error;
-    }
-
-    bool GotFatalError() const { return got_fatal_; }
-
-  private:
-    std::atomic<bool> got_fatal_{false};
-};
-
-struct DiscoveryState {
-    std::optional<discovery::Config> config;
-    SerialDeletePtr<discovery::DnsSdService> service;
-    std::unique_ptr<DiscoveryReportingClient> reporting_client;
-    std::unique_ptr<AdbOspTaskRunner> task_runner;
-    std::vector<std::unique_ptr<ServiceWatcher>> watchers;
-    InterfaceInfo interface_info;
-};
 
 static void RequestConnectToDevice(const ServiceInfo& info) {
     // Connecting to a device does not happen often. We spawn a new thread each time.
@@ -125,98 +84,6 @@ void AttemptAutoConnect(const std::reference_wrapper<const ServiceInfo> info) {
     RequestConnectToDevice(info.get());
 }
 
-// Callback provided to service receiver for updates.
-void OnServiceReceiverResult(std::vector<std::reference_wrapper<const ServiceInfo>>,
-                             std::reference_wrapper<const ServiceInfo> info,
-                             ServicesUpdatedState state) {
-    bool updated = true;
-    switch (state) {
-        case ServicesUpdatedState::EndpointCreated: {
-            discovered_services.ServiceCreated(info);
-            AttemptAutoConnect(info);
-            break;
-        }
-        case ServicesUpdatedState::EndpointUpdated: {
-            updated = discovered_services.ServiceUpdated(info);
-            if (updated) {
-                AttemptAutoConnect(info);
-            }
-            break;
-        }
-        case ServicesUpdatedState::EndpointDeleted: {
-            discovered_services.ServiceDeleted(info);
-            break;
-        }
-    }
-
-    if (updated) {
-        update_mdns_trackers();
-    }
-}
-
-std::optional<discovery::Config> GetConfigForAllInterfaces() {
-    auto interface_infos = GetNetworkInterfaces();
-
-    discovery::Config config;
-
-    // The host only consumes mDNS traffic. It doesn't publish anything.
-    // Avoid creating an mDNSResponder that will listen with authority
-    // to answer over no domain.
-    config.enable_publication = false;
-
-    for (const auto& interface : interface_infos) {
-        if (interface.GetIpAddressV4() || interface.GetIpAddressV6()) {
-            config.network_info.push_back({interface});
-            VLOG(MDNS) << "Listening on interface [" << interface << "]";
-        }
-    }
-
-    if (config.network_info.empty()) {
-        VLOG(MDNS) << "No available network interfaces for mDNS discovery";
-        return std::nullopt;
-    }
-
-    return config;
-}
-
-void StartDiscovery() {
-    CHECK(!g_state);
-    g_state = new DiscoveryState();
-    g_state->task_runner = std::make_unique<AdbOspTaskRunner>();
-    g_state->reporting_client = std::make_unique<DiscoveryReportingClient>();
-
-    g_state->task_runner->PostTask([]() {
-        g_state->config = GetConfigForAllInterfaces();
-        if (!g_state->config) {
-            VLOG(MDNS) << "No mDNS config. Aborting StartDiscovery()";
-            return;
-        }
-
-        VLOG(MDNS) << "Starting discovery on " << (*g_state->config).network_info.size()
-                   << " interfaces";
-
-        g_state->service = discovery::CreateDnsSdService(
-                g_state->task_runner.get(), g_state->reporting_client.get(), *g_state->config);
-        // Register a receiver for each service type
-        for (int i = 0; i < kNumADBDNSServices; ++i) {
-            auto watcher = std::make_unique<ServiceWatcher>(
-                    g_state->service.get(), kADBDNSServices[i], DnsSdInstanceEndpointToServiceInfo,
-                    OnServiceReceiverResult);
-            watcher->StartDiscovery();
-            g_state->watchers.push_back(std::move(watcher));
-
-            if (g_state->reporting_client->GotFatalError()) {
-                for (auto& w : g_state->watchers) {
-                    if (w->is_running()) {
-                        w->StopDiscovery();
-                    }
-                }
-                break;
-            }
-        }
-    });
-}
-
 bool ConnectAdbSecureDevice(const ServiceInfo& info) {
     if (!known_wifi_hosts_file.IsKnownHost(info.instance)) {
         VLOG(MDNS) << "serviceName=" << info.instance << " not in keystore";
@@ -229,25 +96,45 @@ bool ConnectAdbSecureDevice(const ServiceInfo& info) {
 
 }  // namespace
 
+// Callback provided to service receiver for updates.
+void OnServiceReceiverResult(const ServiceInfo& info, ServiceInfoState state) {
+    bool updated = true;
+    switch (state) {
+        case Created: {
+            mdns::discovered_services.ServiceCreated(info);
+            AttemptAutoConnect(info);
+            break;
+        }
+        case Updated: {
+            updated = mdns::discovered_services.ServiceUpdated(info);
+            if (updated) {
+                AttemptAutoConnect(info);
+            }
+            break;
+        }
+        case Deleted: {
+            mdns::discovered_services.ServiceDeleted(info);
+            break;
+        }
+    }
+
+    if (updated) {
+        update_mdns_trackers();
+    }
+}
+
 /////////////////////////////////////////////////////////////////////////////////
 
 void init_mdns_transport_discovery() {
-    const char* mdns_osp = getenv("ADB_MDNS_OPENSCREEN");
-    if (mdns_osp && strcmp(mdns_osp, "0") == 0) {
-        LOG(WARNING) << "Environment variable ADB_MDNS_OPENSCREEN disregarded";
+    if (mdns::should_use_openscreen()) {
+        StartOpenScreenDiscovery();
     } else {
-        VLOG(MDNS) << "Openscreen mdns discovery enabled";
-        StartDiscovery();
+        StartAdbMdnsDiscovery();
     }
 }
 
 bool adb_secure_connect_by_service_name(const std::string& instance_name) {
-    if (!g_state || g_state->watchers.empty()) {
-        VLOG(MDNS) << "Mdns not enabled";
-        return false;
-    }
-
-    auto info = discovered_services.FindInstance(ADB_SERVICE_TLS, instance_name);
+    auto info = mdns::discovered_services.FindInstance(ADB_SERVICE_TLS, instance_name);
     if (info.has_value()) {
         return ConnectAdbSecureDevice(*info);
     }
@@ -255,24 +142,24 @@ bool adb_secure_connect_by_service_name(const std::string& instance_name) {
 }
 
 std::string mdns_check() {
-    if (!g_state) {
+    if (!mdns::is_enabled()) {
         return "ERROR: mdns discovery disabled";
     }
 
-    return "mdns daemon version [Openscreen discovery 0.0.0]";
+    if (mdns::should_use_openscreen()) {
+        return "mdns daemon version [Openscreen discovery 0.0.0]";
+    }
+
+    return "mdns daemon version [adb discovery 0.0.0]";
 }
 
 std::string mdns_list_discovered_services() {
-    if (!g_state || g_state->watchers.empty()) {
-        return "";
-    }
-
     std::string result;
-    auto cb = [&](const mdns::ServiceInfo& si) {
+    auto cb = [&](const ServiceInfo& si) {
         result += std::format("{}\t{}\t{}:{}\n", si.instance, si.service, si.v4_address_string(),
                               si.port);
     };
-    discovered_services.ForAllServices(cb);
+    mdns::discovered_services.ForAllServices(cb);
     return result;
 }
 
@@ -287,7 +174,7 @@ std::optional<ServiceInfo> mdns_get_connect_service_info(const std::string& name
 
     std::string fq_service =
             std::format("{}.{}", mdns_instance->service_name, mdns_instance->transport_type);
-    return discovered_services.FindInstance(fq_service, mdns_instance->instance_name);
+    return mdns::discovered_services.FindInstance(fq_service, mdns_instance->instance_name);
 }
 
 std::optional<ServiceInfo> mdns_get_pairing_service_info(const std::string& name) {
@@ -299,5 +186,5 @@ std::optional<ServiceInfo> mdns_get_pairing_service_info(const std::string& name
         return {};
     }
 
-    return discovered_services.FindInstance(ADB_SERVICE_PAIR, mdns_instance->instance_name);
+    return mdns::discovered_services.FindInstance(ADB_SERVICE_PAIR, mdns_instance->instance_name);
 }

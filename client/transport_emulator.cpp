@@ -40,6 +40,7 @@
 
 #include "adb.h"
 #include "adb_io.h"
+#include "adb_mdns.h"
 #include "adb_unique_fd.h"
 #include "adb_utils.h"
 #include "fdevent/fdevent.h"
@@ -108,13 +109,16 @@ void connect_device(const std::string& address, std::string* response) {
         return;
     }
     auto reconnect = [prefix_addr](atransport* t) {
+        if (prefix_addr.ends_with(MDNS_SERVICE_PROTOCOL)) {
+            return ReconnectResult::Abort;
+        }
         std::string response;
         unique_fd fd;
         int port;
         std::string serial;
         socket_spec_connect(&fd, prefix_addr, &port, &serial, &response);
         if (fd == -1) {
-            D("reconnect failed: %s", response.c_str());
+            LOG(INFO) << "reconnect " << serial << " failed: " << response;
             return ReconnectResult::Retry;
         }
         // This invokes the part of register_socket_transport() that needs to be

@@ -18,6 +18,48 @@
 
 #include "adb_trace.h"
 
+#include <algorithm>
+
+std::ostream& operator<<(std::ostream& os, const ServiceInfo& info) {
+    os << info.instance << "." << info.service << ":" << info.port << "";
+    return os;
+}
+
+// Parse a key/value from a TXT record. Format expected is "key=value"
+std::tuple<bool, std::string, std::string> ServiceInfo::ParseTxtKeyValue(const std::string& kv) {
+    auto split_loc = std::ranges::find(kv, static_cast<uint8_t>('='));
+    if (split_loc == kv.end()) {
+        return {false, "", ""};
+    }
+    std::string key;
+    std::string value;
+
+    key.assign(kv.begin(), split_loc);
+    if (split_loc + 1 != kv.end()) {
+        value.assign(split_loc + 1, kv.end());
+    }
+
+    if (key.empty()) {
+        return {false, key, value};
+    }
+    return {true, key, value};
+}
+
+std::unordered_map<std::string, std::string> ServiceInfo::ParseTxt(
+        const std::vector<std::vector<uint8_t>>& txt) {
+    std::unordered_map<std::string, std::string> kv;
+    for (auto& in_kv : txt) {
+        std::string skv = std::string(in_kv.begin(), in_kv.end());
+        auto [valid, key, value] = ParseTxtKeyValue(skv);
+        if (!valid) {
+            VLOG(MDNS) << "Bad TXT value '" << skv << "'";
+            continue;
+        }
+        kv[key] = value;
+    }
+    return kv;
+}
+
 namespace mdns {
 DiscoveredServices discovered_services [[clang::no_destroy]];
 

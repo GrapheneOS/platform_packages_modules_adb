@@ -16,9 +16,13 @@
 
 #pragma once
 
+#include <optional>
 #include <string>
 
-namespace HostServices {
-constexpr const char* kTrackMdnsServices = "track-mdns-services";
-constexpr const char* kListMdnsKnownHosts = "list-mdns-known-hosts";
-}
+#include "discovered_services.h"
+
+// Whatever mdns engine is used, this is the sole entry point into ADB.
+void OnServiceReceiverResult(const ServiceInfo& info, ServiceInfoState state);
+
+std::optional<ServiceInfo> mdns_get_connect_service_info(const std::string& name);
+std::optional<ServiceInfo> mdns_get_pairing_service_info(const std::string& name);
