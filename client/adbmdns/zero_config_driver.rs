@@ -4,7 +4,6 @@ use crate::zero_config::ZeroConfigCommand::DnsQuery;
 use crate::zero_config::{ZeroConfig, ZeroConfigCommand};
 use crate::{send_update, AdbMdnsUpdate};
 use anyhow::Result;
-use libc::c_int;
 use log::warn;
 use simple_dns::{Name, Packet, Question};
 use socket2::{Domain, Protocol, Socket, Type};
@@ -118,7 +117,7 @@ impl ZeroConfigDriver {
                     service_type,
                     &owned_ipv4s,
                     &owned_ipv6s,
-                    *port as c_int,
+                    *port,
                 )
             }
             DeleteService { instance_name, service_type } => {

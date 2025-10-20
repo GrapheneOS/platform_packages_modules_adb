@@ -19,7 +19,7 @@
 //! This is a C-compatible bridge to functions to interact with the Rust-based
 //! adb mDNS implementation.
 
-use std::ffi::{c_char, c_int, c_uint, CString};
+use std::ffi::{c_char, CString};
 use std::net::{Ipv4Addr, Ipv6Addr};
 use std::sync::Mutex;
 
@@ -68,10 +68,10 @@ pub unsafe extern "C" fn register(cb: EventCallback) {
               service_type: &str,
               ipv4s: &[Ipv4Addr],
               ipv6s: &[Ipv6Addr],
-              port: c_int| {
+              port: u16| {
             let instance_str = CString::new(instance_name).unwrap();
             let service_str = CString::new(service_type).unwrap();
-            let raw_v4s: Vec<u32> = ipv4s.iter().map(|ip| ip.to_bits()).collect();
+            let raw_v4s: Vec<u8> = ipv4s.iter().flat_map(Ipv4Addr::octets).collect();
             // TODO:
             // let raw_v6s: Vec<u128> = ipv6s.iter().map(Ipv6Addr::to_bits).collect();
             // If we can do this, it'd avoid issues with a length from one source and a buffer from collecting another - we'd be getting the length from the vector itself.
@@ -80,7 +80,7 @@ pub unsafe extern "C" fn register(cb: EventCallback) {
 
             // SAFETY:
             // 1. instance_name and service_type NUL-terminated strings and live across the callback
-            // 2. `raw_v4s` is a sequence of `raw_v4s.len()` `u32`s, and lives across the callback.
+            // 2. `raw_v4s` is a sequence of `raw_v4s.len()` `u8` * 4s, and lives across the callback.
             // 3. `raw_v6s` should be a sequence of bytes equivalent to the 16 octets per address.
             //    This property dynamically verified by the debug assertion.
             unsafe {
@@ -107,7 +107,7 @@ fn send_update(
     service_type: &str,
     ipv4s: &[Ipv4Addr],
     ipv6s: &[Ipv6Addr],
-    port: c_int,
+    port: u16,
 ) {
     let guard = G_EVENT_CALLBACK.lock().unwrap();
     if let Some(callback) = &*guard {
@@ -131,12 +131,8 @@ fn run() {
 // These enum and function must be kept in sync with the bridge header file
 // TODO: Use bindgen to auto-generate rust from this file.
 /// Defines the signature for the C-compatible logging callback function.
-type AdbLoggerCallback = extern "C" fn(
-    level: AdbLogLevel,
-    filename: *const c_char,
-    line: c_uint,
-    message: *const c_char,
-);
+type AdbLoggerCallback =
+    extern "C" fn(level: AdbLogLevel, filename: *const c_char, line: u32, message: *const c_char);
 
 // These enum and function must be kept in sync with the bridge header file
 // TODO: Use bindgen to auto-generate rust from this file.
@@ -145,16 +141,16 @@ type EventCallback = unsafe extern "C" fn(
     event_type: AdbMdnsUpdate,
     instance_name: *const c_char,
     service_type: *const c_char,
-    num_ipv4s: c_int,
-    ipv4s: *const c_int,
-    num_ipv6s: c_int,
-    ipv6s: *const c_char,
-    port: c_int,
+    num_ipv4s: u32,
+    ipv4s: *const u8,
+    num_ipv6s: u32,
+    ipv6s: *const u8,
+    port: u16,
 );
 
 /// A global, mutable static variable to store the registered log callback.
 static G_EVENT_CALLBACK: Mutex<
-    Option<Box<dyn Fn(AdbMdnsUpdate, &str, &str, &[Ipv4Addr], &[Ipv6Addr], c_int) + Send>>,
+    Option<Box<dyn Fn(AdbMdnsUpdate, &str, &str, &[Ipv4Addr], &[Ipv6Addr], u16) + Send>>,
 > = Mutex::new(None);
 
 struct AdbLogger {

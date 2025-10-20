@@ -17,6 +17,8 @@
 #include "adbmdns.h"
 #include "adbmdns_bridge.h"
 
+#include <stdint.h>
+
 #include "adb_trace.h"
 #include "client/discovered_services.h"
 #include "client/transport_mdns.h"
@@ -53,43 +55,37 @@ static ServiceInfoState update_to_state(const AdbMdnsUpdate update) {
 }
 
 // Convert libadbmdns raw ipv4 to ADB format
-static IPv4Address rawIpv4ToIPv4(uint32_t raw) {
-    IPv4Address ip;
-    ip.bytes[0] = raw >> 24 & 0xFF;
-    ip.bytes[1] = raw >> 16 & 0xFF;
-    ip.bytes[2] = raw >> 8 & 0xFF;
-    ip.bytes[3] = raw & 0xFF;
+static IPv4Address rawIpv4ToIPv4(const uint8_t* raw) {
+    IPv4Address ip{};
+    memcpy(ip.bytes, raw, sizeof(IPv4Address::bytes));
     return ip;
 }
 
 // Convert libadbmdns raw ipv6 to ADB format
-static IPv6Address rawIpv6ToIPv6(char* raw) {
-    IPv6Address addr;
-    memcpy(addr.bytes, raw, sizeof(IPv6Address::bytes));
-    return addr;
+static IPv6Address rawIpv6ToIPv6(const uint8_t* raw) {
+    IPv6Address ip{};
+    memcpy(ip.bytes, raw, sizeof(IPv6Address::bytes));
+    return ip;
 }
 
 static void events_cb(AdbMdnsUpdate type, const char* instance_name, const char* service_type,
-                      int numIPV4s, int* ipv4s, int numIPV6s, char* ipv6s, int port) {
+                      uint32_t numIPV4s, const uint8_t* ipv4s, uint32_t numIPV6s,
+                      const uint8_t* ipv6s, uint16_t port) {
     std::unordered_set<IPv6Address, IPv6AddressHash> in_v6_addresses;
-    for (int i = 0; i < numIPV6s; i++) {
+    for (auto i = 0u; i < numIPV6s; i++) {
         in_v6_addresses.insert(rawIpv6ToIPv6(ipv6s + i * sizeof(IPv6Address::bytes)));
     }
 
     std::optional<IPv4Address> ip;
     if (numIPV4s > 0) {
-        ip = rawIpv4ToIPv4(ipv4s[0]);
+        ip = rawIpv4ToIPv4(ipv4s);
     }
 
     // TODO: Parse TXT
     std::vector<std::vector<uint8_t>> txt;
 
-    auto info = ServiceInfo{instance_name,
-                            service_type,
-                            std::optional(ip),
-                            in_v6_addresses,
-                            static_cast<uint16_t>(port),
-                            txt};
+    auto info =
+            ServiceInfo{instance_name, service_type, std::optional(ip), in_v6_addresses, port, txt};
 
     OnServiceReceiverResult(info, update_to_state(type));
 }
