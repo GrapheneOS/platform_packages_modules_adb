@@ -17,7 +17,11 @@
 #include "adbmdns.h"
 #include "adbmdns_bridge.h"
 
+#include <stdint.h>
+
 #include "adb_trace.h"
+#include "client/discovered_services.h"
+#include "client/transport_mdns.h"
 
 template <typename E>
     requires std::is_enum_v<E>
@@ -39,29 +43,51 @@ static void logger_cb(AdbLogLevel severity, const char* filename, unsigned int l
     }
 }
 
-static void events_cb(AdbMdnsUpdate type, const char* instance_name, const char* service_type,
-                      int numIPV4s, int* ipv4s, int numIPV6s, char* ipv6s, int port) {
-    // TODO: Call into OnServiceReceiverResult(const ServiceInfo& info, ServiceInfoState state);
-    // Just log for now.
-    VLOG(MDNS_STACK) << std::format("type='{}', instance_name='{}', type='{}' port={}", type,
-                                    instance_name, service_type, port);
+static ServiceInfoState update_to_state(const AdbMdnsUpdate update) {
+    switch (update) {
+        case AdbMdnsUpdate::Create:
+            return ServiceInfoState::Created;
+        case AdbMdnsUpdate::Update:
+            return ServiceInfoState::Updated;
+        case AdbMdnsUpdate::Delete:
+            return ServiceInfoState::Deleted;
+    }
+}
 
-    VLOG(MDNS_STACK) << "Num ipv4=" << numIPV4s;
-    for (int i = 0; i < numIPV4s; i++) {
-        auto ip = ipv4s[i];
-        VLOG(MDNS_STACK) << "    " << ((ip >> 24) & 0xFF) << "." << ((ip >> 16) & 0xFF) << "."
-                         << ((ip >> 8) & 0xFF) << "." << (ip & 0xFF);
+// Convert libadbmdns raw ipv4 to ADB format
+static IPv4Address rawIpv4ToIPv4(const uint8_t* raw) {
+    IPv4Address ip{};
+    memcpy(ip.bytes, raw, sizeof(IPv4Address::bytes));
+    return ip;
+}
+
+// Convert libadbmdns raw ipv6 to ADB format
+static IPv6Address rawIpv6ToIPv6(const uint8_t* raw) {
+    IPv6Address ip{};
+    memcpy(ip.bytes, raw, sizeof(IPv6Address::bytes));
+    return ip;
+}
+
+static void events_cb(AdbMdnsUpdate type, const char* instance_name, const char* service_type,
+                      uint32_t numIPV4s, const uint8_t* ipv4s, uint32_t numIPV6s,
+                      const uint8_t* ipv6s, uint16_t port) {
+    std::unordered_set<IPv6Address, IPv6AddressHash> in_v6_addresses;
+    for (auto i = 0u; i < numIPV6s; i++) {
+        in_v6_addresses.insert(rawIpv6ToIPv6(ipv6s + i * sizeof(IPv6Address::bytes)));
     }
-    VLOG(MDNS_STACK) << "Num ipv6=" << numIPV6s;
-    int cursor = 0;
-    for (int i = 0; i < numIPV6s; i++) {
-        std::string ipv6;
-        for (int j = 0; j < 16; j++) {
-            ipv6.append(std::format("{:02X}.", ipv6s[cursor++]));
-        }
-        ipv6.pop_back();
-        VLOG(MDNS_STACK) << "    " << ipv6;
+
+    std::optional<IPv4Address> ip;
+    if (numIPV4s > 0) {
+        ip = rawIpv4ToIPv4(ipv4s);
     }
+
+    // TODO: Parse TXT
+    std::vector<std::vector<uint8_t>> txt;
+
+    auto info =
+            ServiceInfo{instance_name, service_type, std::optional(ip), in_v6_addresses, port, txt};
+
+    OnServiceReceiverResult(info, update_to_state(type));
 }
 
 void StartAdbMdnsDiscovery() {

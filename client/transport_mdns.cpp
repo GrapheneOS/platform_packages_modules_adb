@@ -63,14 +63,17 @@ static void RequestConnectToDevice(const ServiceInfo& info) {
 
 void AttemptAutoConnect(const std::reference_wrapper<const ServiceInfo> info) {
     if (!adb_DNSServiceShouldAutoConnect(info.get().service, info.get().instance)) {
+        VLOG(MDNS) << "Don't auto-connect to " << info.get().instance << "." << info.get().service;
         return;
     }
+
     if (!info.get().v4_address.has_value()) {
         return;
     }
 
     const auto index = adb_DNSServiceIndexByName(info.get().service);
     if (!index) {
+        VLOG(MDNS) << "Unknown service" << info.get().service;
         return;
     }
 
@@ -101,11 +104,13 @@ void OnServiceReceiverResult(const ServiceInfo& info, ServiceInfoState state) {
     bool updated = true;
     switch (state) {
         case Created: {
+            VLOG(MDNS) << "mdns stack reported service created " << info;
             mdns::discovered_services.ServiceCreated(info);
             AttemptAutoConnect(info);
             break;
         }
         case Updated: {
+            VLOG(MDNS) << "mdns stack reported service updated " << info;
             updated = mdns::discovered_services.ServiceUpdated(info);
             if (updated) {
                 AttemptAutoConnect(info);
@@ -113,6 +118,7 @@ void OnServiceReceiverResult(const ServiceInfo& info, ServiceInfoState state) {
             break;
         }
         case Deleted: {
+            VLOG(MDNS) << "mdns stack reported service deleted " << info;
             mdns::discovered_services.ServiceDeleted(info);
             break;
         }

@@ -16,6 +16,8 @@
 
 #pragma once
 
+#include <stdint.h>
+
 // These enum and function must be kept in sync with the Rust AdbLogLevel in the rs file
 // TODO: Use bindgen to auto-generate rust from this file.
 enum AdbLogLevel : int {
@@ -32,8 +34,11 @@ enum AdbMdnsUpdate : int {
     Delete = 3,
 };
 
-extern "C" void adbmdns_start(void (*logger)(AdbLogLevel level, const char* filename,
-                                             unsigned int line, const char* mesg),
-                              void (*events)(AdbMdnsUpdate type, const char* instance_name,
-                                             const char* service_type, int numIPV4s, int* ipv4s,
-                                             int numIPV6s, char* ipv6s, int port));
+extern "C" void adbmdns_start(
+        void (*logger)(AdbLogLevel level, const char* filename, uint32_t line, const char* mesg),
+        // Byte order for ipv4s and ipv6s is "network order" (big endian). For example, an ipv4
+        // address "192.168.0.1" will be received as an array of four bytes where
+        // byte[0] = 192, byte[1] = 168, byte[2] = 0, and byte[3] = 1.
+        void (*events)(AdbMdnsUpdate type, const char* instance_name, const char* service_type,
+                       uint32_t numIPV4s, const uint8_t* ipv4s, uint32_t numIPV6s,
+                       const uint8_t* ipv6s, uint16_t port));
