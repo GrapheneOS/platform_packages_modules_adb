@@ -19,6 +19,7 @@
 //! This is a C-compatible bridge to functions to interact with the Rust-based
 //! adb mDNS implementation.
 
+use log::error;
 use std::ffi::{c_char, CString};
 use std::net::{Ipv4Addr, Ipv6Addr};
 use std::sync::Mutex;
@@ -28,7 +29,9 @@ mod zero_config;
 use zero_config::ZeroConfig;
 
 mod zero_config_driver;
+mod zero_config_driver_channel;
 
+use crate::zero_config::ZeroConfigCommand::Restart;
 use zero_config_driver::ZeroConfigDriver;
 
 // These enum and function must be kept in sync with the bridge header file
@@ -115,16 +118,26 @@ fn send_update(
     }
 }
 
-fn network_changed() {
-    // log::info!("Network change detected");
-}
-
 fn run() {
     log::info!("ADB mdns is starting...");
-    netwatch::monitor_network_changes(Box::new(network_changed));
 
     let zero_config = ZeroConfig::new();
-    let zero_config_driver = ZeroConfigDriver::new(zero_config);
+
+    let (tx, rx) = match zero_config_driver_channel::new() {
+        Ok(pair) => pair,
+        Err(e) => {
+            error!("Unable to create zeroconfig driver channel: {e}");
+            return;
+        }
+    };
+
+    let zero_config_driver = ZeroConfigDriver::new(zero_config, rx);
+    netwatch::monitor_network_changes(Box::new(move || {
+        if let Err(e) = tx.send(Restart {}) {
+            error!("Failed to send restart command on network change: {e}");
+        }
+    }));
+
     zero_config_driver.run_forever();
 }
 

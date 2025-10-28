@@ -1,14 +1,16 @@
-use crate::zero_config::ZeroConfigCommand::CreateService;
 use crate::zero_config::ZeroConfigCommand::DeleteService;
 use crate::zero_config::ZeroConfigCommand::DnsQuery;
+use crate::zero_config::ZeroConfigCommand::{CreateService, Restart};
 use crate::zero_config::{ZeroConfig, ZeroConfigCommand};
+use crate::zero_config_driver_channel::ZeroConfigDriverChannelReceiver;
 use crate::{send_update, AdbMdnsUpdate};
 use anyhow::Result;
 use if_addrs::Interface;
-use log::{debug, warn};
+use log::{debug, error, warn};
 use mio::{net::UdpSocket, Events, Poll};
 use simple_dns::{Name, Packet, Question};
 use socket2::{Domain, Socket, Type};
+use std::io::ErrorKind::WouldBlock;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6};
 use std::time::Duration;
 use std::{net, thread, vec};
@@ -23,6 +25,12 @@ pub struct ZeroConfigDriver {
 
     // The sockets/interfaces used to send and receive mDNS packets
     io: Vec<ZeroConfigIO>,
+
+    // A channel allowing to received commands sent from outside zeroconfig driver.
+    // Currently used to receive commands resulting from network_watch.
+    command_channel: ZeroConfigDriverChannelReceiver,
+
+    running: bool,
 }
 
 const MDNS_PORT: u16 = 5353;
@@ -30,8 +38,11 @@ const MDNS_ADDRESS_V4: Ipv4Addr = Ipv4Addr::new(224, 0, 0, 251);
 const MDNS_ADDRESS_V6: Ipv6Addr = Ipv6Addr::new(0xff02, 0, 0, 0, 0, 0, 0, 0xfb);
 
 impl ZeroConfigDriver {
-    pub fn new(zero_config: ZeroConfig) -> ZeroConfigDriver {
-        ZeroConfigDriver { zero_config, io: Vec::new() }
+    pub fn new(
+        zero_config: ZeroConfig,
+        command_channel: ZeroConfigDriverChannelReceiver,
+    ) -> ZeroConfigDriver {
+        ZeroConfigDriver { zero_config, io: Vec::new(), command_channel, running: true }
     }
 
     fn send_query(&self, query: &[u8]) -> Result<()> {
@@ -119,17 +130,61 @@ impl ZeroConfigDriver {
         }
     }
 
+    fn handle_socket_readable(&mut self, socket_id: usize) -> Result<()> {
+        let mut buf = [0u8; 65535];
+        // Poll is ET (Edge-Triggered), we need to drain the socket buffer until it is empty.
+        loop {
+            match self.io[socket_id].socket.recv(&mut buf) {
+                Ok(len) => {
+                    let packets = Packet::parse(&buf[..len])?;
+                    self.process_packet(packets);
+                }
+                Err(e) => {
+                    if e.kind() != WouldBlock {
+                        error!("Error in receiving on ZeroConfigDriverChannelReceiver: {e}");
+                    }
+                    break;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn process_events(&mut self, events: &Events) -> Result<()> {
+        for event in events.iter() {
+            if !event.is_readable() {
+                continue;
+            }
+
+            // This is the interrupt socket. We have command waiting to be processed in the
+            // command_channel.
+            if event.token() == mio::Token(self.io.len()) {
+                let commands = self.command_channel.recv();
+                for command in &commands {
+                    self.process_command(command);
+                }
+                continue;
+            }
+
+            self.handle_socket_readable(event.token().0)?;
+        }
+        Ok(())
+    }
+
     fn run(&mut self) -> Result<()> {
+        debug!("ZeroConfigDriver starting...");
+        self.running = true;
         self.create_sockets()?;
 
         // Check if ZeroConf has some commands to run before we start. This is the time to send
         // the initial query for tracked services.
-        for command in self.zero_config.initial_commands() {
+        for command in self.zero_config.on_start() {
             self.process_command(&command);
         }
 
-        let mut buf = [0u8; 65535];
         let mut poller = Poll::new()?;
+
+        // Register all network interfaces
         for (index, interface) in self.io.iter_mut().enumerate() {
             poller.registry().register(
                 &mut interface.socket,
@@ -138,22 +193,27 @@ impl ZeroConfigDriver {
             )?;
         }
 
-        let mut events = Events::with_capacity(1024);
+        // Register the interrupt socket
+        poller.registry().register(
+            &mut self.command_channel,
+            mio::Token(self.io.len()),
+            mio::Interest::READABLE,
+        )?;
 
-        loop {
+        let mut events = Events::with_capacity(self.io.len() + 1);
+        while self.running {
             // TODO timeout should be set according to the attention list in ZeroConf. For now
             // we never timeout
             poller.poll(&mut events, None)?;
-
-            for event in events.iter() {
-                if !event.is_readable() {
-                    continue;
-                }
-                let len = self.io[event.token().0].socket.recv(&mut buf)?;
-                let packets = Packet::parse(&buf[..len])?;
-                self.process_packet(packets);
-            }
+            self.process_events(&events)?;
         }
+
+        debug!("ZeroConfigDriver stopping...");
+        for command in &self.zero_config.on_stop() {
+            self.process_command(command);
+        }
+
+        Ok(())
     }
 
     pub fn run_forever(mut self) {
@@ -164,11 +224,11 @@ impl ZeroConfigDriver {
                     log::error!("{:?}", e);
                 }
             }
-            thread::sleep(Duration::from_secs(4));
+            thread::sleep(Duration::from_secs(1));
         });
     }
 
-    fn process_command(&self, command: &ZeroConfigCommand) {
+    fn process_command(&mut self, command: &ZeroConfigCommand) {
         log::debug!("Processing command {:?}", command);
         match command {
             DnsQuery { query, qtype, qclass } => {
@@ -204,6 +264,9 @@ impl ZeroConfigDriver {
             }
             DeleteService { instance_name, service_type } => {
                 send_update(AdbMdnsUpdate::Delete, instance_name, service_type, &[], &[], 0)
+            }
+            Restart {} => {
+                self.running = false;
             }
         }
     }
