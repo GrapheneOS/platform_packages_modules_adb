@@ -14,6 +14,7 @@
 
 mod wlan_tracker;
 
+use crate::netwatch::NetworkMonitorCallback;
 use log::info;
 use std::thread;
 use std::thread::sleep;
@@ -42,7 +43,7 @@ fn listen_forever(callback: impl Fn() + Send + 'static) {
 }
 
 /// Starts a background thread that registers a listener and parks
-pub fn monitor_network_changes(callback: impl Fn() + Send + 'static) {
+pub fn monitor_network_changes_native(callback: NetworkMonitorCallback) {
     thread::spawn(move || {
         listen_forever(callback);
     });
