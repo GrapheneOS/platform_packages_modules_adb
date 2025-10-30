@@ -31,6 +31,7 @@ use zero_config::ZeroConfig;
 mod zero_config_driver;
 mod zero_config_driver_channel;
 
+use crate::zero_config::TxtAttributes;
 use crate::zero_config::ZeroConfigCommand::Restart;
 use zero_config_driver::ZeroConfigDriver;
 
@@ -46,6 +47,16 @@ pub enum AdbMdnsUpdate {
     Update = 2,
     /// A Resource Record was deleted
     Delete = 3,
+}
+
+/// Struct used to send txt key/value pair over the bridge.
+/// Keep in since with the C struct txt_key_value
+#[repr(C)]
+pub struct TxtKeyValue {
+    key: *const u8,
+    key_len: u32,
+    value: *const u8,
+    value_len: u32,
 }
 
 // A helper function to handle the CString creation and error.
@@ -71,7 +82,8 @@ pub unsafe extern "C" fn register(cb: EventCallback) {
               service_type: &str,
               ipv4s: &[Ipv4Addr],
               ipv6s: &[Ipv6Addr],
-              port: u16| {
+              port: u16,
+              txt_attributes: &TxtAttributes| {
             let instance_str = CString::new(instance_name).unwrap();
             let service_str = CString::new(service_type).unwrap();
             let raw_v4s: Vec<u8> = ipv4s.iter().flat_map(Ipv4Addr::octets).collect();
@@ -80,6 +92,17 @@ pub unsafe extern "C" fn register(cb: EventCallback) {
             // If we can do this, it'd avoid issues with a length from one source and a buffer from collecting another - we'd be getting the length from the vector itself.
             let raw_v6s: Vec<u8> = ipv6s.iter().flat_map(Ipv6Addr::octets).collect();
             debug_assert!(raw_v6s.len() == ipv6s.len() * std::mem::size_of::<u128>());
+
+            // Convert RR::TXT into a bridge format (TxtKeyValue)
+            let raw_txt_kvs: Vec<_> = txt_attributes
+                .iter()
+                .map(|(key, value)| TxtKeyValue {
+                    key: key.as_ptr(),
+                    key_len: key.len() as u32,
+                    value: value.as_ptr(),
+                    value_len: value.len() as u32,
+                })
+                .collect();
 
             // SAFETY:
             // 1. instance_name and service_type NUL-terminated strings and live across the callback
@@ -96,6 +119,8 @@ pub unsafe extern "C" fn register(cb: EventCallback) {
                     ipv6s.len() as _,
                     raw_v6s.as_ptr() as _,
                     port,
+                    raw_txt_kvs.len() as u32,
+                    raw_txt_kvs.as_ptr(),
                 );
             }
         },
@@ -111,10 +136,11 @@ fn send_update(
     ipv4s: &[Ipv4Addr],
     ipv6s: &[Ipv6Addr],
     port: u16,
+    txt: &TxtAttributes,
 ) {
     let guard = G_EVENT_CALLBACK.lock().unwrap();
     if let Some(callback) = &*guard {
-        callback(event_type, instance_name, service_type, ipv4s, ipv6s, port);
+        callback(event_type, instance_name, service_type, ipv4s, ipv6s, port, txt);
     }
 }
 
@@ -159,11 +185,17 @@ type EventCallback = unsafe extern "C" fn(
     num_ipv6s: u32,
     ipv6s: *const u8,
     port: u16,
+    num_txt_kvs: u32,
+    txt_kvs: *const TxtKeyValue,
 );
 
 /// A global, mutable static variable to store the registered log callback.
 static G_EVENT_CALLBACK: Mutex<
-    Option<Box<dyn Fn(AdbMdnsUpdate, &str, &str, &[Ipv4Addr], &[Ipv6Addr], u16) + Send>>,
+    Option<
+        Box<
+            dyn Fn(AdbMdnsUpdate, &str, &str, &[Ipv4Addr], &[Ipv6Addr], u16, &TxtAttributes) + Send,
+        >,
+    >,
 > = Mutex::new(None);
 
 struct AdbLogger {

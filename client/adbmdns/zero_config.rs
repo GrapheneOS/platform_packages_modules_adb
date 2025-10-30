@@ -1,7 +1,8 @@
 use anyhow::{anyhow, Result};
-use simple_dns::rdata::RData::{A, AAAA, PTR, SRV, TXT};
+use simple_dns::rdata::RData::TXT as SimpleDnsTXT;
+use simple_dns::rdata::RData::{A, AAAA, PTR, SRV};
 use simple_dns::{Name, ResourceRecord};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fmt::{Display, Formatter};
 use std::mem::take;
 use std::net::{Ipv4Addr, Ipv6Addr};
@@ -19,6 +20,7 @@ pub(crate) enum ZeroConfigCommand {
         ipv4: Ipv4Addr,
         ipv6: Ipv6Addr,
         port: u16,
+        txt: TxtAttributes,
     },
     DeleteService {
         instance_name: String,
@@ -83,6 +85,8 @@ const TLS_CONNECT_SERVICE: &str = "_adb-tls-connect._tcp";
 const TLS_PAIRING_SERVICE: &str = "_adb-tls-pairing._tcp";
 const TCP_CONNECT_SERVICE: &str = "_adb._tcp";
 
+pub type TxtAttributes = HashMap<String, String>;
+
 impl ZeroConfig {
     pub(crate) fn new() -> ZeroConfig {
         let mut zero_config = ZeroConfig {
@@ -135,6 +139,7 @@ impl ZeroConfig {
         let mut aaaa: Option<Ipv6Addr> = None;
         let mut ttl = 0;
         let mut domain_name = None;
+        let mut txt: Option<TxtAttributes> = None;
 
         for record in records {
             match &record.rdata {
@@ -214,15 +219,16 @@ impl ZeroConfig {
                         ip.address
                     );
                 }
-
-                TXT(txt) => {
+                SimpleDnsTXT(txt_rdata) => {
                     log::debug!("   TXT : Name={}, TTL={}", record.name, record.ttl);
                     // The dns_parser crate provides an iterator for TXT records
-                    for (key, option) in txt.attributes() {
-                        if let Some(value) = option {
-                            log::debug!("           - {}={:?}", key, value);
-                        }
+                    let mut kvs: TxtAttributes = HashMap::new();
+                    for (key, option) in txt_rdata.attributes() {
+                        let value = option.unwrap_or("".to_string());
+                        log::debug!("           - {}={}", key, value);
+                        kvs.insert(key, value);
                     }
+                    txt = Some(kvs);
                 }
                 unknown => {
                     log::debug!("   XXX : Name={}, {:?}", record.name, unknown);
@@ -241,7 +247,8 @@ impl ZeroConfig {
             Some(port),
             Some(ipv6),
             Some(domain_name),
-        ) = (instance_name, service_type, a, port, aaaa, domain_name)
+            Some(txt),
+        ) = (instance_name, service_type, a, port, aaaa, domain_name, txt)
         {
             self.known_instances.insert(domain_name);
             self.commands.push(ZeroConfigCommand::CreateService {
@@ -250,6 +257,7 @@ impl ZeroConfig {
                 ipv4,
                 ipv6,
                 port,
+                txt,
             });
         } else {
             log::debug!("Incomplete mDNS record found.")
@@ -367,6 +375,7 @@ mod tests {
                 ipv4: ip4,
                 ipv6: ip6,
                 port: p,
+                txt: _,
             } => {
                 assert_eq!(instance_name, &domain_name.instance_name);
                 assert_eq!(service_type, &domain_name.service_type);
