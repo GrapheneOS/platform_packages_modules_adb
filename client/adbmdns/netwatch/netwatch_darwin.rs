@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::netwatch::NetworkMonitorCallback;
 use anyhow::anyhow;
 use anyhow::Result;
 use libc::{
@@ -205,7 +206,7 @@ fn listen_forever(callback: impl Fn() + Send + Sized) {
 
 /// Starts a background thread to listen for network changes and
 /// sends messages to a channel.
-pub fn monitor_network_changes(callback: impl Fn() + Send + 'static) {
+pub fn monitor_network_changes_native(callback: NetworkMonitorCallback) {
     thread::spawn(move || {
         listen_forever(callback);
     });

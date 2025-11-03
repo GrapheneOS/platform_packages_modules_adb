@@ -121,7 +121,7 @@ fn network_changed() {
 
 fn run() {
     log::info!("ADB mdns is starting...");
-    netwatch::monitor_network_changes(network_changed);
+    netwatch::monitor_network_changes(Box::new(network_changed));
 
     let zero_config = ZeroConfig::new();
     let zero_config_driver = ZeroConfigDriver::new(zero_config);

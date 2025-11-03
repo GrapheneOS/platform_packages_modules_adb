@@ -10,6 +10,8 @@ rust_defaults {
         "libsocket2",
         "libanyhow",
         "libsimple_dns",
+        "libmio",
+        "libif_addrs",
     ],
     // Define export_include_dirs so cc_binary knows where the headers are.
     export_include_dirs: ["."],
