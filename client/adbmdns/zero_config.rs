@@ -266,6 +266,10 @@ impl ZeroConfig {
         // This allows finding related records (e.g., PTR, SRV, A/AAAA) that may be in
         // different sections of the packet.
         let all_records: Vec<_> = answers.into_iter().chain(additional).chain(nameserver).collect();
+        if all_records.is_empty() {
+            return Vec::new();
+        }
+
         log::debug!("Processing {} records from mDNS packet", all_records.len());
         self.process_records(all_records);
 
