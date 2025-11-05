@@ -74,7 +74,11 @@ impl ZeroConfigDriver {
                 .into(),
             };
 
-            zeroconfig_io.socket.send_to(query, addr)?;
+            let res = zeroconfig_io.socket.send_to(query, addr);
+            if res.is_err() {
+                log::error!("Failed to send query to zero socket {res:?}");
+                continue;
+            }
         }
         Ok(())
     }
