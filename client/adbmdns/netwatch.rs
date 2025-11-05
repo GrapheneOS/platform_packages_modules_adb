@@ -42,11 +42,17 @@ use std::time::{Duration, Instant};
 // Depending on the OS, the network monitor can be very verbose, triggering for each route
 // modification and interface event. As a precaution, we "debounce" these events, and only
 // trigger every DEBOUNCE_CUTOFF seconds.
-const DEBOUNCE_CUTOFF: Duration = Duration::from_secs(1);
+//
+// Additionally, we get our network events from directly from the kernel on linux (netlink)
+// and darwin (af_route). This means the userland (such as udev) may not have had time to
+// actually make the interface available. By triggering too fast, we may not be able to
+// actually send packets on that interfaces. In practice, it seems that waiting 3 seconds is
+// enough to prevent this issue.
+const DEBOUNCE_CUTOFF: Duration = Duration::from_secs(3);
 
 // To prevent starvation with a system sending network update every second
 // we also place a max cap on how much to wait until triggering.
-const MAX_DEBOUNCE_DELAY: Duration = Duration::from_secs(5);
+const MAX_DEBOUNCE_DELAY: Duration = Duration::from_secs(6);
 
 fn new_debouncer(callback: NetworkMonitorCallback) -> NetworkMonitorCallback {
     let (tx, rx) = mpsc::channel::<()>();
