@@ -17,7 +17,7 @@
 use crate::zero_config::ZeroConfigCommand::DeleteService;
 use crate::zero_config::ZeroConfigCommand::DnsQuery;
 use crate::zero_config::ZeroConfigCommand::{CreateService, Restart};
-use crate::zero_config::{ZeroConfig, ZeroConfigCommand};
+use crate::zero_config::{TxtAttributes, ZeroConfig, ZeroConfigCommand};
 use crate::zero_config_driver_channel::ZeroConfigDriverChannelReceiver;
 use crate::{send_update, AdbMdnsUpdate};
 use anyhow::Result;
@@ -270,7 +270,7 @@ impl ZeroConfigDriver {
                     warn!("Error sending query {question:?} {res:?}");
                 }
             }
-            CreateService { instance_name, service_type, ipv4, ipv6, port } => {
+            CreateService { instance_name, service_type, ipv4, ipv6, port, txt } => {
                 let owned_ipv4s: Vec<Ipv4Addr> = vec![*ipv4];
                 let owned_ipv6s: Vec<Ipv6Addr> = vec![*ipv6];
                 send_update(
@@ -280,11 +280,18 @@ impl ZeroConfigDriver {
                     &owned_ipv4s,
                     &owned_ipv6s,
                     *port,
+                    txt,
                 )
             }
-            DeleteService { instance_name, service_type } => {
-                send_update(AdbMdnsUpdate::Delete, instance_name, service_type, &[], &[], 0)
-            }
+            DeleteService { instance_name, service_type } => send_update(
+                AdbMdnsUpdate::Delete,
+                instance_name,
+                service_type,
+                &[],
+                &[],
+                0,
+                &TxtAttributes::new(),
+            ),
             Restart {} => {
                 self.running = false;
             }

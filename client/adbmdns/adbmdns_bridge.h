@@ -34,6 +34,13 @@ enum AdbMdnsUpdate : int {
     Delete = 3,
 };
 
+struct txt_key_value {
+    const char* key;
+    const uint32_t key_size;
+    const char* value;
+    const uint32_t value_size;
+};
+
 extern "C" void adbmdns_start(
         void (*logger)(AdbLogLevel level, const char* filename, uint32_t line, const char* mesg),
         // Byte order for ipv4s and ipv6s is "network order" (big endian). For example, an ipv4
@@ -41,4 +48,5 @@ extern "C" void adbmdns_start(
         // byte[0] = 192, byte[1] = 168, byte[2] = 0, and byte[3] = 1.
         void (*events)(AdbMdnsUpdate type, const char* instance_name, const char* service_type,
                        uint32_t numIPV4s, const uint8_t* ipv4s, uint32_t numIPV6s,
-                       const uint8_t* ipv6s, uint16_t port));
+                       const uint8_t* ipv6s, uint16_t port, const uint32_t num_txt_kvs,
+                       const txt_key_value* txt_kvs));
