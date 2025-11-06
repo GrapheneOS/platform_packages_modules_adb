@@ -205,9 +205,8 @@ impl ZeroConfig {
                         Ok(s) => s,
                         Err(e) => {
                             log::debug!(
-                                "   Could not parse SRV record name '{}': {}",
-                                &record.name,
-                                e
+                                "   Could not parse SRV record name '{}': {e}",
+                                &record.name
                             );
                             continue;
                         }
@@ -241,13 +240,13 @@ impl ZeroConfig {
                     let mut kvs: TxtAttributes = HashMap::new();
                     for (key, option) in txt_rdata.attributes() {
                         let value = option.unwrap_or("".to_string());
-                        log::debug!("           - {}={}", key, value);
+                        log::debug!("           - {key}={value}");
                         kvs.insert(key, value);
                     }
                     txt = Some(kvs);
                 }
                 unknown => {
-                    log::debug!("   XXX : Name={}, {:?}", record.name, unknown);
+                    log::debug!("   XXX : Name={}, {unknown:?}", record.name);
                 }
             }
         }
@@ -405,7 +404,7 @@ mod tests {
                 assert_eq!(zero_conf.commands.len(), 0)
             }
             _ => {
-                panic!("Unexpected command {:?}", cmd);
+                panic!("Unexpected command {cmd:?}");
             }
         };
     }
@@ -438,7 +437,7 @@ mod tests {
                 assert_eq!(zero_conf.commands.len(), 0)
             }
             _ => {
-                panic!("Unexpected command {:?}", cmd);
+                panic!("Unexpected command {cmd:?}");
             }
         }
     }

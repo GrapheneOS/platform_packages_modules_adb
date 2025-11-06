@@ -132,10 +132,10 @@ impl ZeroConfigDriver {
 
         for interface in interfaces {
             let Ok(socket) = ZeroConfigDriver::create_socket(&interface) else {
-                warn!("Unable to create socket for interface {:?}", interface);
+                warn!("Unable to create socket for interface {interface:?}");
                 continue;
             };
-            debug!("Created socket {:?} on interface {:?}", socket, interface);
+            debug!("Created socket {socket:?} on interface {interface:?}");
             self.io.push(ZeroConfigIO { interface, socket });
         }
         Ok(())
@@ -249,7 +249,7 @@ impl ZeroConfigDriver {
     }
 
     fn process_command(&mut self, command: &ZeroConfigCommand) {
-        log::debug!("Processing command {:?}", command);
+        log::debug!("Processing command {command:?}");
         match command {
             DnsQuery { query, qtype, qclass } => {
                 let mut packet = Packet::new_query(0);
@@ -261,7 +261,7 @@ impl ZeroConfigDriver {
                 let question = Question::new(name, *qtype, *qclass, false);
                 packet.questions.push(question.clone());
                 let Ok(query) = packet.build_bytes_vec() else {
-                    warn!("Unable to build query for {query}, {:?}, {:?}", qtype, qclass);
+                    warn!("Unable to build query for {query}, {qtype:?}, {qclass:?}");
                     return;
                 };
 

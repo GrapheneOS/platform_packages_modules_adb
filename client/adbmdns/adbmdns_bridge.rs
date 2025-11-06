@@ -64,7 +64,7 @@ pub struct TxtKeyValue {
 // A helper function to handle the CString creation and error.
 fn cstring_from_str(s: &str) -> CString {
     CString::new(s).unwrap_or_else(|e| {
-        log::warn!("Invalid string '{}': {}. Using empty string.", s, e);
+        log::warn!("Invalid string '{s}': {e}. Using empty string.");
         // This unwrap is safe because we use a parameter which does not contain a null byte.
         CString::new("").unwrap()
     })
@@ -285,7 +285,7 @@ pub unsafe extern "C" fn adbmdns_start(
     // SAFETY: Assume adb gave us correct logger callback
     unsafe {
         log::set_boxed_logger(Box::new(AdbLogger::new(log_callback)))
-            .unwrap_or_else(|e| eprintln!("Failed to set logger: {}", e));
+            .unwrap_or_else(|e| eprintln!("Failed to set logger: {e}"));
     }
     log::set_max_level(log::LevelFilter::Trace);
 
