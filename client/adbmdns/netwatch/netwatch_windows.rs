@@ -44,7 +44,10 @@ fn listen_forever(callback: impl Fn() + Send + 'static) {
 
 /// Starts a background thread that registers a listener and parks
 pub fn monitor_network_changes_native(callback: NetworkMonitorCallback) {
-    thread::spawn(move || {
-        listen_forever(callback);
-    });
+    thread::Builder::new()
+        .name("libadbmdns_windows_netwatcher".to_string())
+        .spawn(move || {
+            listen_forever(callback);
+        })
+        .expect("Failed to start libadbmdns windows netwatch thread");
 }

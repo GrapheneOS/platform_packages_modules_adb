@@ -207,7 +207,10 @@ fn listen_forever(callback: impl Fn() + Send + Sized) {
 /// Starts a background thread to listen for network changes and
 /// sends messages to a channel.
 pub fn monitor_network_changes_native(callback: NetworkMonitorCallback) {
-    thread::spawn(move || {
-        listen_forever(callback);
-    });
+    thread::Builder::new()
+        .name("libadbmdns_darwin_netwatch".to_string())
+        .spawn(move || {
+            listen_forever(callback);
+        })
+        .expect("Failed to start libadbmdns netwatch thread");
 }
