@@ -579,7 +579,7 @@ void handle_packet(apacket* p, atransport* t) {
                     local_socket_ack(s, acked_bytes);
                 } else {
                     D("Invalid A_OKAY(%d,%d), expected A_OKAY(%d,%d) on transport %s", p->msg.arg0,
-                      p->msg.arg1, s->peer->id, p->msg.arg1, t->serial.c_str());
+                      p->msg.arg1, s->peer->id, p->msg.arg1, t->name.c_str());
                 }
             } else {
                 // When receiving A_OKAY from device for A_OPEN request, the host server may
@@ -606,7 +606,7 @@ void handle_packet(apacket* p, atransport* t) {
                  */
                 if (p->msg.arg0 == 0 && s->peer && s->peer->transport != t) {
                     D("Invalid A_CLSE(0, %u) from transport %s, expected transport %s", p->msg.arg1,
-                      t->serial.c_str(), s->peer->transport->serial.c_str());
+                      t->name.c_str(), s->peer->transport->name.c_str());
                 } else {
                     s->close(s);
                 }
@@ -1502,7 +1502,7 @@ HostRequestResult handle_host_request(std::string_view service, TransportType ty
                 s->transport ? s->transport
                              : acquire_one_transport(type, serial, transport_id, nullptr, &error);
         if (t) {
-            SendOkay(reply_fd, !t->serial.empty() ? t->serial : "unknown");
+            SendOkay(reply_fd, !t->name.empty() ? t->name : "unknown");
         } else {
             SendFail(reply_fd, error);
         }
