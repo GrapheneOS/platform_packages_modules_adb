@@ -237,15 +237,18 @@ impl ZeroConfigDriver {
     }
 
     pub fn run_forever(mut self) {
-        thread::spawn(move || loop {
-            match self.run() {
-                Ok(_) => {}
-                Err(e) => {
-                    log::error!("{:?}", e);
+        thread::Builder::new()
+            .name("libadbmdns_zero_config_driver".to_string())
+            .spawn(move || loop {
+                match self.run() {
+                    Ok(_) => {}
+                    Err(e) => {
+                        log::error!("{:?}", e);
+                    }
                 }
-            }
-            thread::sleep(Duration::from_secs(1));
-        });
+                thread::sleep(Duration::from_secs(1));
+            })
+            .expect("Failed to spawn libadbmdns zeroconfig driver thread");
     }
 
     fn process_command(&mut self, command: &ZeroConfigCommand) {
