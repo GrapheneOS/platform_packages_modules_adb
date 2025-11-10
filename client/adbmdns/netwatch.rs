@@ -1,3 +1,19 @@
+/*
+ * Copyright (C) 2025 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 #[cfg(target_os = "windows")]
 pub mod netwatch_windows;
 
@@ -26,52 +42,61 @@ use std::time::{Duration, Instant};
 // Depending on the OS, the network monitor can be very verbose, triggering for each route
 // modification and interface event. As a precaution, we "debounce" these events, and only
 // trigger every DEBOUNCE_CUTOFF seconds.
-const DEBOUNCE_CUTOFF: Duration = Duration::from_secs(1);
+//
+// Additionally, we get our network events from directly from the kernel on linux (netlink)
+// and darwin (af_route). This means the userland (such as udev) may not have had time to
+// actually make the interface available. By triggering too fast, we may not be able to
+// actually send packets on that interfaces. In practice, it seems that waiting 3 seconds is
+// enough to prevent this issue.
+const DEBOUNCE_CUTOFF: Duration = Duration::from_secs(3);
 
 // To prevent starvation with a system sending network update every second
 // we also place a max cap on how much to wait until triggering.
-const MAX_DEBOUNCE_DELAY: Duration = Duration::from_secs(5);
+const MAX_DEBOUNCE_DELAY: Duration = Duration::from_secs(6);
 
 fn new_debouncer(callback: NetworkMonitorCallback) -> NetworkMonitorCallback {
     let (tx, rx) = mpsc::channel::<()>();
-    thread::spawn({
-        move || {
-            loop {
-                // Wait for the first call to arm the timer.
-                if let Err(err) = rx.recv() {
-                    error!("netwatch debouncer could not recv {err:?}");
-                }
-
-                // Keep track of time to trigger on MAX_DEBOUNCE_DELAY
-                let start_time = Instant::now();
-
-                // Timer has now been armed, let's wait for either a timeout or a new call.
+    thread::Builder::new()
+        .name("libadbmdns_debouncer".to_string())
+        .spawn({
+            move || {
                 loop {
-                    match rx.recv_timeout(DEBOUNCE_CUTOFF) {
-                        Ok(_) => {
-                            // Got another call, reset timer (unless we have reached
-                            // max delay(
-                            if start_time.elapsed() < MAX_DEBOUNCE_DELAY {
-                                debug!("netwatcher, debouncing!");
-                                continue;
-                            } else {
-                                debug!("netwatcher, max debounce delay reached, triggering!");
+                    // Wait for the first call to arm the timer.
+                    if let Err(err) = rx.recv() {
+                        error!("netwatch debouncer could not recv {err:?}");
+                    }
+
+                    // Keep track of time to trigger on MAX_DEBOUNCE_DELAY
+                    let start_time = Instant::now();
+
+                    // Timer has now been armed, let's wait for either a timeout or a new call.
+                    loop {
+                        match rx.recv_timeout(DEBOUNCE_CUTOFF) {
+                            Ok(_) => {
+                                // Got another call, reset timer (unless we have reached
+                                // max delay(
+                                if start_time.elapsed() < MAX_DEBOUNCE_DELAY {
+                                    debug!("netwatcher, debouncing!");
+                                    continue;
+                                } else {
+                                    debug!("netwatcher, max debounce delay reached, triggering!");
+                                    callback();
+                                    break;
+                                }
+                            }
+                            Err(mpsc::RecvTimeoutError::Timeout) => {
+                                // Enough time has passed
+                                debug!("netwatcher, triggering!");
                                 callback();
                                 break;
                             }
+                            Err(mpsc::RecvTimeoutError::Disconnected) => return,
                         }
-                        Err(mpsc::RecvTimeoutError::Timeout) => {
-                            // Enough time has passed
-                            debug!("netwatcher, triggering!");
-                            callback();
-                            break;
-                        }
-                        Err(mpsc::RecvTimeoutError::Disconnected) => return,
                     }
                 }
             }
-        }
-    });
+        })
+        .expect("Failed to start libadbmdns debouncer thread");
 
     // Return a function that just sends a signal when called
     Box::new(move || {

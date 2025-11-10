@@ -1,16 +1,18 @@
-// Copyright (C) 2025 The Android Open Source Project
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//      http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * Copyright (C) 2025 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 
 // Crate documentation
 
@@ -19,6 +21,7 @@
 //! This is a C-compatible bridge to functions to interact with the Rust-based
 //! adb mDNS implementation.
 
+use log::error;
 use std::ffi::{c_char, CString};
 use std::net::{Ipv4Addr, Ipv6Addr};
 use std::sync::Mutex;
@@ -28,7 +31,10 @@ mod zero_config;
 use zero_config::ZeroConfig;
 
 mod zero_config_driver;
+mod zero_config_driver_channel;
 
+use crate::zero_config::TxtAttributes;
+use crate::zero_config::ZeroConfigCommand::Restart;
 use zero_config_driver::ZeroConfigDriver;
 
 // These enum and function must be kept in sync with the bridge header file
@@ -45,10 +51,20 @@ pub enum AdbMdnsUpdate {
     Delete = 3,
 }
 
+/// Struct used to send txt key/value pair over the bridge.
+/// Keep in since with the C struct txt_key_value
+#[repr(C)]
+pub struct TxtKeyValue {
+    key: *const u8,
+    key_len: u32,
+    value: *const u8,
+    value_len: u32,
+}
+
 // A helper function to handle the CString creation and error.
 fn cstring_from_str(s: &str) -> CString {
     CString::new(s).unwrap_or_else(|e| {
-        log::warn!("Invalid string '{}': {}. Using empty string.", s, e);
+        log::warn!("Invalid string '{s}': {e}. Using empty string.");
         // This unwrap is safe because we use a parameter which does not contain a null byte.
         CString::new("").unwrap()
     })
@@ -68,7 +84,8 @@ pub unsafe extern "C" fn register(cb: EventCallback) {
               service_type: &str,
               ipv4s: &[Ipv4Addr],
               ipv6s: &[Ipv6Addr],
-              port: u16| {
+              port: u16,
+              txt_attributes: &TxtAttributes| {
             let instance_str = CString::new(instance_name).unwrap();
             let service_str = CString::new(service_type).unwrap();
             let raw_v4s: Vec<u8> = ipv4s.iter().flat_map(Ipv4Addr::octets).collect();
@@ -77,6 +94,17 @@ pub unsafe extern "C" fn register(cb: EventCallback) {
             // If we can do this, it'd avoid issues with a length from one source and a buffer from collecting another - we'd be getting the length from the vector itself.
             let raw_v6s: Vec<u8> = ipv6s.iter().flat_map(Ipv6Addr::octets).collect();
             debug_assert!(raw_v6s.len() == ipv6s.len() * std::mem::size_of::<u128>());
+
+            // Convert RR::TXT into a bridge format (TxtKeyValue)
+            let raw_txt_kvs: Vec<_> = txt_attributes
+                .iter()
+                .map(|(key, value)| TxtKeyValue {
+                    key: key.as_ptr(),
+                    key_len: key.len() as u32,
+                    value: value.as_ptr(),
+                    value_len: value.len() as u32,
+                })
+                .collect();
 
             // SAFETY:
             // 1. instance_name and service_type NUL-terminated strings and live across the callback
@@ -93,6 +121,8 @@ pub unsafe extern "C" fn register(cb: EventCallback) {
                     ipv6s.len() as _,
                     raw_v6s.as_ptr() as _,
                     port,
+                    raw_txt_kvs.len() as u32,
+                    raw_txt_kvs.as_ptr(),
                 );
             }
         },
@@ -108,23 +138,34 @@ fn send_update(
     ipv4s: &[Ipv4Addr],
     ipv6s: &[Ipv6Addr],
     port: u16,
+    txt: &TxtAttributes,
 ) {
     let guard = G_EVENT_CALLBACK.lock().unwrap();
     if let Some(callback) = &*guard {
-        callback(event_type, instance_name, service_type, ipv4s, ipv6s, port);
+        callback(event_type, instance_name, service_type, ipv4s, ipv6s, port, txt);
     }
-}
-
-fn network_changed() {
-    // log::info!("Network change detected");
 }
 
 fn run() {
     log::info!("ADB mdns is starting...");
-    netwatch::monitor_network_changes(Box::new(network_changed));
 
     let zero_config = ZeroConfig::new();
-    let zero_config_driver = ZeroConfigDriver::new(zero_config);
+
+    let (tx, rx) = match zero_config_driver_channel::new() {
+        Ok(pair) => pair,
+        Err(e) => {
+            error!("Unable to create zeroconfig driver channel: {e}");
+            return;
+        }
+    };
+
+    let zero_config_driver = ZeroConfigDriver::new(zero_config, rx);
+    netwatch::monitor_network_changes(Box::new(move || {
+        if let Err(e) = tx.send(Restart {}) {
+            error!("Failed to send restart command on network change: {e}");
+        }
+    }));
+
     zero_config_driver.run_forever();
 }
 
@@ -146,11 +187,17 @@ type EventCallback = unsafe extern "C" fn(
     num_ipv6s: u32,
     ipv6s: *const u8,
     port: u16,
+    num_txt_kvs: u32,
+    txt_kvs: *const TxtKeyValue,
 );
 
 /// A global, mutable static variable to store the registered log callback.
 static G_EVENT_CALLBACK: Mutex<
-    Option<Box<dyn Fn(AdbMdnsUpdate, &str, &str, &[Ipv4Addr], &[Ipv6Addr], u16) + Send>>,
+    Option<
+        Box<
+            dyn Fn(AdbMdnsUpdate, &str, &str, &[Ipv4Addr], &[Ipv6Addr], u16, &TxtAttributes) + Send,
+        >,
+    >,
 > = Mutex::new(None);
 
 struct AdbLogger {
@@ -238,7 +285,7 @@ pub unsafe extern "C" fn adbmdns_start(
     // SAFETY: Assume adb gave us correct logger callback
     unsafe {
         log::set_boxed_logger(Box::new(AdbLogger::new(log_callback)))
-            .unwrap_or_else(|e| eprintln!("Failed to set logger: {}", e));
+            .unwrap_or_else(|e| eprintln!("Failed to set logger: {e}"));
     }
     log::set_max_level(log::LevelFilter::Trace);
 

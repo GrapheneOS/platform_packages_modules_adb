@@ -68,9 +68,30 @@ static IPv6Address rawIpv6ToIPv6(const uint8_t* raw) {
     return ip;
 }
 
+// Convert all key/value returned by libadbmdns to the format expected by the
+// abstraction layer (which is based on openscreen format).
+// Output a vector of u8 in the form of (k=v).
+static std::vector<std::vector<uint8_t>> parseTxt(const uint32_t num_txt_kv,
+                                                  const txt_key_value* txt_kvs) {
+    std::vector<std::vector<uint8_t>> txt_vec;
+
+    for (uint32_t kv_index = 0; kv_index < num_txt_kv; kv_index++) {
+        std::string key(txt_kvs[kv_index].key, txt_kvs[kv_index].key_size);
+        std::string value(txt_kvs[kv_index].value, txt_kvs[kv_index].value_size);
+        std::string entry = std::format("{}={}", key, value);
+
+        // Convert string into vector<uint8_t>
+        std::vector<uint8_t> u8_vec;
+        u8_vec.insert(u8_vec.end(), entry.begin(), entry.end());
+        txt_vec.emplace_back(u8_vec);
+    }
+    return txt_vec;
+}
+
 static void events_cb(AdbMdnsUpdate type, const char* instance_name, const char* service_type,
                       uint32_t numIPV4s, const uint8_t* ipv4s, uint32_t numIPV6s,
-                      const uint8_t* ipv6s, uint16_t port) {
+                      const uint8_t* ipv6s, uint16_t port, const uint32_t num_txt_key_values,
+                      const txt_key_value* txt_kvs) {
     std::unordered_set<IPv6Address, IPv6AddressHash> in_v6_addresses;
     for (auto i = 0u; i < numIPV6s; i++) {
         in_v6_addresses.insert(rawIpv6ToIPv6(ipv6s + i * sizeof(IPv6Address::bytes)));
@@ -81,8 +102,7 @@ static void events_cb(AdbMdnsUpdate type, const char* instance_name, const char*
         ip = rawIpv4ToIPv4(ipv4s);
     }
 
-    // TODO: Parse TXT
-    std::vector<std::vector<uint8_t>> txt;
+    const std::vector<std::vector<uint8_t>> txt = parseTxt(num_txt_key_values, txt_kvs);
 
     auto info =
             ServiceInfo{instance_name, service_type, std::optional(ip), in_v6_addresses, port, txt};

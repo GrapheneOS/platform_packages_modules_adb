@@ -1,11 +1,29 @@
+/*
+ * Copyright (C) 2025 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 use anyhow::{anyhow, Result};
-use simple_dns::rdata::RData::{A, AAAA, PTR, SRV, TXT};
+use simple_dns::rdata::RData::TXT as SimpleDnsTXT;
+use simple_dns::rdata::RData::{A, AAAA, PTR, SRV};
 use simple_dns::{Name, ResourceRecord};
+use std::collections::{HashMap, HashSet};
 use std::fmt::{Display, Formatter};
 use std::mem::take;
 use std::net::{Ipv4Addr, Ipv6Addr};
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Clone)]
 pub(crate) enum ZeroConfigCommand {
     DnsQuery {
         query: String,
@@ -18,11 +36,13 @@ pub(crate) enum ZeroConfigCommand {
         ipv4: Ipv4Addr,
         ipv6: Ipv6Addr,
         port: u16,
+        txt: TxtAttributes,
     },
     DeleteService {
         instance_name: String,
         service_type: String,
     },
+    Restart {},
 }
 
 pub(crate) struct ZeroConfig {
@@ -32,9 +52,13 @@ pub(crate) struct ZeroConfig {
 
     // The list of tracked services. e.g.: _adb-tls-connect._tcp
     pub(crate) tracked_services: Vec<String>,
+
+    // Keep track of currently known services. Used to update the
+    // tracker and delete all entries upon stop.
+    known_instances: HashSet<AdbDomainName>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Hash, Eq)]
 pub struct AdbDomainName {
     pub instance_name: String,
     pub service_type: String,
@@ -77,16 +101,22 @@ const TLS_CONNECT_SERVICE: &str = "_adb-tls-connect._tcp";
 const TLS_PAIRING_SERVICE: &str = "_adb-tls-pairing._tcp";
 const TCP_CONNECT_SERVICE: &str = "_adb._tcp";
 
+pub type TxtAttributes = HashMap<String, String>;
+
 impl ZeroConfig {
     pub(crate) fn new() -> ZeroConfig {
-        let mut zero_config = ZeroConfig { commands: vec![], tracked_services: Vec::new() };
+        let mut zero_config = ZeroConfig {
+            commands: Vec::new(),
+            tracked_services: Vec::new(),
+            known_instances: HashSet::new(),
+        };
         zero_config.track_service(TLS_CONNECT_SERVICE.to_owned());
         zero_config.track_service(TLS_PAIRING_SERVICE.to_owned());
         zero_config.track_service(TCP_CONNECT_SERVICE.to_owned());
         zero_config
     }
 
-    pub fn initial_commands(&mut self) -> Vec<ZeroConfigCommand> {
+    pub fn on_start(&mut self) -> Vec<ZeroConfigCommand> {
         let mut commands = Vec::new();
         for service in &self.tracked_services {
             let query = format!("{service}.local");
@@ -96,6 +126,20 @@ impl ZeroConfig {
                 qclass: simple_dns::QCLASS::ANY,
             });
         }
+        commands
+    }
+
+    pub fn on_stop(&mut self) -> Vec<ZeroConfigCommand> {
+        let mut commands = Vec::new();
+
+        for service in &self.known_instances {
+            commands.push(ZeroConfigCommand::DeleteService {
+                instance_name: service.instance_name.to_string(),
+                service_type: service.service_type.to_string(),
+            })
+        }
+
+        self.known_instances.clear();
         commands
     }
 
@@ -110,6 +154,8 @@ impl ZeroConfig {
         let mut a: Option<Ipv4Addr> = None;
         let mut aaaa: Option<Ipv6Addr> = None;
         let mut ttl = 0;
+        let mut domain_name = None;
+        let mut txt: Option<TxtAttributes> = None;
 
         for record in records {
             match &record.rdata {
@@ -127,6 +173,7 @@ impl ZeroConfig {
                             continue;
                         }
                     };
+                    domain_name = Some(service.clone());
 
                     // Disregard all mDNS PTR that we are not tracking
                     if !self.tracked_services.contains(&service.service_type) {
@@ -139,6 +186,7 @@ impl ZeroConfig {
 
                     instance_name = Some(service.instance_name.to_string());
                     if record.ttl == 0 {
+                        self.known_instances.remove(&service);
                         self.commands.push(ZeroConfigCommand::DeleteService {
                             instance_name: service.instance_name,
                             service_type: service.service_type,
@@ -157,9 +205,8 @@ impl ZeroConfig {
                         Ok(s) => s,
                         Err(e) => {
                             log::debug!(
-                                "   Could not parse SRV record name '{}': {}",
-                                &record.name,
-                                e
+                                "   Could not parse SRV record name '{}': {e}",
+                                &record.name
                             );
                             continue;
                         }
@@ -187,18 +234,19 @@ impl ZeroConfig {
                         ip.address
                     );
                 }
-
-                TXT(txt) => {
+                SimpleDnsTXT(txt_rdata) => {
                     log::debug!("   TXT : Name={}, TTL={}", record.name, record.ttl);
                     // The dns_parser crate provides an iterator for TXT records
-                    for (key, option) in txt.attributes() {
-                        if let Some(value) = option {
-                            log::debug!("           - {}={:?}", key, value);
-                        }
+                    let mut kvs: TxtAttributes = HashMap::new();
+                    for (key, option) in txt_rdata.attributes() {
+                        let value = option.unwrap_or("".to_string());
+                        log::debug!("           - {key}={value}");
+                        kvs.insert(key, value);
                     }
+                    txt = Some(kvs);
                 }
                 unknown => {
-                    log::debug!("   XXX : Name={}, {:?}", record.name, unknown);
+                    log::debug!("   XXX : Name={}, {unknown:?}", record.name);
                 }
             }
         }
@@ -207,15 +255,24 @@ impl ZeroConfig {
             return;
         }
 
-        if let (Some(instance_name), Some(service_type), Some(ipv4), Some(port), Some(ipv6)) =
-            (instance_name, service_type, a, port, aaaa)
+        if let (
+            Some(instance_name),
+            Some(service_type),
+            Some(ipv4),
+            Some(port),
+            Some(ipv6),
+            Some(domain_name),
+            Some(txt),
+        ) = (instance_name, service_type, a, port, aaaa, domain_name, txt)
         {
+            self.known_instances.insert(domain_name);
             self.commands.push(ZeroConfigCommand::CreateService {
                 instance_name,
                 service_type,
                 ipv4,
                 ipv6,
                 port,
+                txt,
             });
         } else {
             log::debug!("Incomplete mDNS record found.")
@@ -228,14 +285,16 @@ impl ZeroConfig {
         additional: Vec<ResourceRecord>,
         nameserver: Vec<ResourceRecord>,
     ) -> Vec<ZeroConfigCommand> {
-        log::debug!("ANSWERS: ({})", answers.len());
-        self.process_records(answers);
+        // Combine all records from the mDNS packet into a single list for processing.
+        // This allows finding related records (e.g., PTR, SRV, A/AAAA) that may be in
+        // different sections of the packet.
+        let all_records: Vec<_> = answers.into_iter().chain(additional).chain(nameserver).collect();
+        if all_records.is_empty() {
+            return Vec::new();
+        }
 
-        log::debug!("ADDITIONAL: ({})", additional.len());
-        self.process_records(additional);
-
-        log::debug!("NAMESERVER:: ({})", nameserver.len());
-        self.process_records(nameserver);
+        log::debug!("Processing {} records from mDNS packet", all_records.len());
+        self.process_records(all_records);
 
         take(self.commands.as_mut())
     }
@@ -335,6 +394,7 @@ mod tests {
                 ipv4: ip4,
                 ipv6: ip6,
                 port: p,
+                txt: _,
             } => {
                 assert_eq!(instance_name, &domain_name.instance_name);
                 assert_eq!(service_type, &domain_name.service_type);
@@ -344,7 +404,7 @@ mod tests {
                 assert_eq!(zero_conf.commands.len(), 0)
             }
             _ => {
-                panic!("Unexpected command {:?}", cmd);
+                panic!("Unexpected command {cmd:?}");
             }
         };
     }
@@ -377,7 +437,7 @@ mod tests {
                 assert_eq!(zero_conf.commands.len(), 0)
             }
             _ => {
-                panic!("Unexpected command {:?}", cmd);
+                panic!("Unexpected command {cmd:?}");
             }
         }
     }
