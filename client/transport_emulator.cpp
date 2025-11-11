@@ -95,7 +95,7 @@ void connect_device(const std::string& address, std::string* response) {
     D("connection requested to '%s'", address.c_str());
     unique_fd fd;
     int port;
-    std::string serial, prefix_addr;
+    std::string transport_name, prefix_addr;
 
     // If address does not match any socket type, it should default to TCP.
     if (address.starts_with("vsock:") || address.starts_with("localfilesystem:")) {
@@ -104,7 +104,7 @@ void connect_device(const std::string& address, std::string* response) {
         prefix_addr = "tcp:" + address;
     }
 
-    socket_spec_connect(&fd, prefix_addr, &port, &serial, response);
+    socket_spec_connect(&fd, prefix_addr, &port, &transport_name, response);
     if (fd.get() == -1) {
         return;
     }
@@ -130,17 +130,20 @@ void connect_device(const std::string& address, std::string* response) {
     };
 
     int error;
-    if (!register_socket_transport(std::move(fd), serial, port, false, std::move(reconnect), false,
-                                   &error)) {
+    if (!register_socket_transport(std::move(fd), transport_name, port, false, std::move(reconnect),
+                                   false, &error)) {
         if (error == EALREADY) {
-            *response = android::base::StringPrintf("already connected to %s", serial.c_str());
+            *response =
+                    android::base::StringPrintf("already connected to %s", transport_name.c_str());
         } else if (error == EPERM) {
-            *response = android::base::StringPrintf("failed to authenticate to %s", serial.c_str());
+            *response = android::base::StringPrintf("failed to authenticate to %s",
+                                                    transport_name.c_str());
         } else {
-            *response = android::base::StringPrintf("failed to connect to %s", serial.c_str());
+            *response =
+                    android::base::StringPrintf("failed to connect to %s", transport_name.c_str());
         }
     } else {
-        *response = android::base::StringPrintf("connected to %s", serial.c_str());
+        *response = android::base::StringPrintf("connected to %s", transport_name.c_str());
     }
 }
 

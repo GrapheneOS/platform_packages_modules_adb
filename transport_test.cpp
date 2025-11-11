@@ -142,14 +142,14 @@ TEST_F(TransportTest, parse_banner_features) {
 
 #if ADB_HOST
 TEST_F(TransportTest, test_matches_target) {
-    std::string serial = "foo";
+    std::string transport_name = "foo";
     std::string devpath = "/path/to/bar";
     std::string product = "test_product";
     std::string model = "test_model";
     std::string device = "test_device";
 
     atransport t{kTransportUsb};
-    t.serial = &serial[0];
+    t.name = &transport_name[0];
     t.devpath = &devpath[0];
     t.product = &product[0];
     t.model = &model[0];
@@ -159,7 +159,7 @@ TEST_F(TransportTest, test_matches_target) {
     for (TransportType type : {kTransportAny, kTransportLocal}) {
         t.type = type;
 
-        EXPECT_TRUE(t.MatchesTarget(serial));
+        EXPECT_TRUE(t.MatchesTarget(transport_name));
         EXPECT_TRUE(t.MatchesTarget(devpath));
         EXPECT_TRUE(t.MatchesTarget("product:" + product));
         EXPECT_TRUE(t.MatchesTarget("model:" + model));
@@ -173,10 +173,10 @@ TEST_F(TransportTest, test_matches_target) {
 }
 
 TEST_F(TransportTest, test_matches_target_local) {
-    std::string serial = "100.100.100.100:5555";
+    std::string transport_name = "100.100.100.100:5555";
 
     atransport t{kTransportLocal};
-    t.serial = &serial[0];
+    t.name = &transport_name[0];
 
     // Network address matching should only be used for local transports.
     for (TransportType type : {kTransportAny, kTransportLocal}) {

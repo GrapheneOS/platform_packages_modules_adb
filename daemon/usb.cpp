@@ -755,7 +755,7 @@ static void usb_ffs_open_thread() {
         }
 
         atransport* transport = new atransport(kTransportUsb);
-        transport->serial = "UsbFfs";
+        transport->name = "UsbFfs";
         std::promise<void> destruction_notifier;
         std::future<void> future = destruction_notifier.get_future();
         transport->SetConnection(std::make_unique<UsbFfsConnection>(
