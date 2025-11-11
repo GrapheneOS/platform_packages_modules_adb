@@ -12,3 +12,4 @@
 - [How ADB Wifi works](adb_wifi.md)
 - [How ADB Incremental install works](incremental-install.md)
 - [How ADB manages public keys](keystore.md)
+- [mDNS 101](mdns.md)

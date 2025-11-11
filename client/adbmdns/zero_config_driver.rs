@@ -14,10 +14,11 @@
  * limitations under the License.
  */
 
-use crate::zero_config::ZeroConfigCommand::DeleteService;
-use crate::zero_config::ZeroConfigCommand::DnsQuery;
-use crate::zero_config::ZeroConfigCommand::{CreateService, Restart};
-use crate::zero_config::{TxtAttributes, ZeroConfig, ZeroConfigCommand};
+use crate::rr::TxtAttributes;
+use crate::zero_config::ZeroConfigCommand::{
+    CreateService, DeleteService, DnsQuery, Restart, UpdateService,
+};
+use crate::zero_config::{ZeroConfig, ZeroConfigCommand};
 use crate::zero_config_driver_channel::ZeroConfigDriverChannelReceiver;
 use crate::{send_update, AdbMdnsUpdate};
 use anyhow::Result;
@@ -26,10 +27,11 @@ use log::{debug, error, warn};
 use mio::{net::UdpSocket, Events, Poll};
 use simple_dns::{Name, Packet, Question};
 use socket2::{Domain, Socket, Type};
+use std::collections::HashSet;
 use std::io::ErrorKind::WouldBlock;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6};
-use std::time::Duration;
-use std::{net, thread, vec};
+use std::time::{Duration, Instant};
+use std::{net, thread};
 
 struct ZeroConfigIO {
     interface: Interface,
@@ -142,8 +144,12 @@ impl ZeroConfigDriver {
     }
 
     fn process_packet(&mut self, packet: Packet) {
-        let commands =
-            self.zero_config.update(packet.answers, packet.additional_records, packet.name_servers);
+        let commands = self.zero_config.update(
+            Instant::now(),
+            packet.answers,
+            packet.additional_records,
+            packet.name_servers,
+        );
 
         for command in commands {
             self.process_command(&command);
@@ -229,26 +235,19 @@ impl ZeroConfigDriver {
         }
 
         debug!("ZeroConfigDriver stopping...");
-        for command in &self.zero_config.on_stop() {
-            self.process_command(command);
-        }
-
         Ok(())
     }
 
     pub fn run_forever(mut self) {
-        thread::Builder::new()
-            .name("libadbmdns_zero_config_driver".to_string())
-            .spawn(move || loop {
-                match self.run() {
-                    Ok(_) => {}
-                    Err(e) => {
-                        log::error!("{:?}", e);
-                    }
+        loop {
+            match self.run() {
+                Ok(_) => {}
+                Err(e) => {
+                    log::error!("{:?}", e);
                 }
-                thread::sleep(Duration::from_secs(1));
-            })
-            .expect("Failed to spawn libadbmdns zeroconfig driver thread");
+            }
+            thread::sleep(Duration::from_secs(1));
+        }
     }
 
     fn process_command(&mut self, command: &ZeroConfigCommand) {
@@ -273,25 +272,30 @@ impl ZeroConfigDriver {
                     warn!("Error sending query {question:?} {res:?}");
                 }
             }
-            CreateService { instance_name, service_type, ipv4, ipv6, port, txt } => {
-                let owned_ipv4s: Vec<Ipv4Addr> = vec![*ipv4];
-                let owned_ipv6s: Vec<Ipv6Addr> = vec![*ipv6];
-                send_update(
-                    AdbMdnsUpdate::Create,
-                    instance_name,
-                    service_type,
-                    &owned_ipv4s,
-                    &owned_ipv6s,
-                    *port,
-                    txt,
-                )
-            }
+            CreateService { instance_name, service_type, ipv4s, ipv6s, port, txt } => send_update(
+                AdbMdnsUpdate::Create,
+                instance_name,
+                service_type,
+                ipv4s,
+                ipv6s,
+                *port,
+                txt,
+            ),
+            UpdateService { instance_name, service_type, ipv4s, ipv6s, port, txt } => send_update(
+                AdbMdnsUpdate::Update,
+                instance_name,
+                service_type,
+                ipv4s,
+                ipv6s,
+                *port,
+                txt,
+            ),
             DeleteService { instance_name, service_type } => send_update(
                 AdbMdnsUpdate::Delete,
                 instance_name,
                 service_type,
-                &[],
-                &[],
+                &HashSet::new(),
+                &HashSet::new(),
                 0,
                 &TxtAttributes::new(),
             ),

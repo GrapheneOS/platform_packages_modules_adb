@@ -22,18 +22,22 @@
 //! adb mDNS implementation.
 
 use log::error;
+use std::collections::HashSet;
 use std::ffi::{c_char, CString};
 use std::net::{Ipv4Addr, Ipv6Addr};
 use std::sync::Mutex;
+use std::thread;
 
+mod index_min_pq;
 mod netwatch;
+mod rr;
+mod store;
 mod zero_config;
-use zero_config::ZeroConfig;
-
 mod zero_config_driver;
 mod zero_config_driver_channel;
 
-use crate::zero_config::TxtAttributes;
+use crate::rr::TxtAttributes;
+use crate::zero_config::ZeroConfig;
 use crate::zero_config::ZeroConfigCommand::Restart;
 use zero_config_driver::ZeroConfigDriver;
 
@@ -82,8 +86,8 @@ pub unsafe extern "C" fn register(cb: EventCallback) {
         move |event_type: AdbMdnsUpdate,
               instance_name: &str,
               service_type: &str,
-              ipv4s: &[Ipv4Addr],
-              ipv6s: &[Ipv6Addr],
+              ipv4s: &HashSet<Ipv4Addr>,
+              ipv6s: &HashSet<Ipv6Addr>,
               port: u16,
               txt_attributes: &TxtAttributes| {
             let instance_str = CString::new(instance_name).unwrap();
@@ -135,8 +139,8 @@ fn send_update(
     event_type: AdbMdnsUpdate,
     instance_name: &str,
     service_type: &str,
-    ipv4s: &[Ipv4Addr],
-    ipv6s: &[Ipv6Addr],
+    ipv4s: &HashSet<Ipv4Addr>,
+    ipv6s: &HashSet<Ipv6Addr>,
     port: u16,
     txt: &TxtAttributes,
 ) {
@@ -149,8 +153,6 @@ fn send_update(
 fn run() {
     log::info!("ADB mdns is starting...");
 
-    let zero_config = ZeroConfig::new();
-
     let (tx, rx) = match zero_config_driver_channel::new() {
         Ok(pair) => pair,
         Err(e) => {
@@ -159,14 +161,20 @@ fn run() {
         }
     };
 
-    let zero_config_driver = ZeroConfigDriver::new(zero_config, rx);
     netwatch::monitor_network_changes(Box::new(move || {
         if let Err(e) = tx.send(Restart {}) {
             error!("Failed to send restart command on network change: {e}");
         }
     }));
 
-    zero_config_driver.run_forever();
+    thread::Builder::new()
+        .name("libadbmdns_zero_config_driver".to_string())
+        .spawn(move || {
+            let zero_config = ZeroConfig::new();
+            let zero_config_driver = ZeroConfigDriver::new(zero_config, rx);
+            zero_config_driver.run_forever();
+        })
+        .expect("Failed to spawn libadbmdns zeroconfig driver thread");
 }
 
 // These enum and function must be kept in sync with the bridge header file
@@ -195,7 +203,15 @@ type EventCallback = unsafe extern "C" fn(
 static G_EVENT_CALLBACK: Mutex<
     Option<
         Box<
-            dyn Fn(AdbMdnsUpdate, &str, &str, &[Ipv4Addr], &[Ipv6Addr], u16, &TxtAttributes) + Send,
+            dyn Fn(
+                    AdbMdnsUpdate,
+                    &str,
+                    &str,
+                    &HashSet<Ipv4Addr>,
+                    &HashSet<Ipv6Addr>,
+                    u16,
+                    &TxtAttributes,
+                ) + Send,
         >,
     >,
 > = Mutex::new(None);
