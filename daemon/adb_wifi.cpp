@@ -239,7 +239,7 @@ void adbd_wifi_secure_connect(atransport* t) {
     t->AddDisconnect(&adb_disconnect);
     handle_online(t);
     send_connect(t);
-    LOG(INFO) << __func__ << ": connected " << t->serial;
+    LOG(INFO) << __func__ << ": connected " << t->name;
     t->auth_id = adbd_auth_tls_device_connected(auth_ctx, kAdbTransportTypeWifi, t->auth_key.data(),
                                                 t->auth_key.size());
 }
