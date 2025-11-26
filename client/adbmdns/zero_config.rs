@@ -29,7 +29,6 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 use ZeroConfigCommand::DnsQuery;
 
-#[allow(dead_code)]
 #[derive(Debug, PartialEq, Clone)]
 pub(crate) enum ZeroConfigCommand {
     DnsQuery {
@@ -310,28 +309,30 @@ impl ZeroConfig {
         self.last_snap_shot = snapshot;
     }
 
-    #[cfg(test)]
-    pub fn update_with_time(&mut self, now: Instant) -> Vec<ZeroConfigCommand> {
-        self.update(now, vec![], vec![], vec![])
+    pub fn set_time(&mut self, now: Instant) {
+        self.now = now;
     }
 
-    pub fn update(
+    pub fn push_records(
         &mut self,
-        now: Instant,
         answers: Vec<ResourceRecord>,
         additional: Vec<ResourceRecord>,
         nameserver: Vec<ResourceRecord>,
-    ) -> Vec<ZeroConfigCommand> {
-        self.now = now;
-
+    ) {
         // Combine all records from the mDNS packet into a single list for processing.
         // This allows finding related records (e.g., PTR, SRV, A/AAAA) that may be in
         // different sections of the packet.
         let all_records: Vec<_> = answers.into_iter().chain(additional).chain(nameserver).collect();
 
-        log::debug!("Processing {} records from mDNS packet", all_records.len());
-        self.process_records(&all_records);
+        if all_records.is_empty() {
+            return;
+        }
 
+        debug!("Processing {} records from mDNS packet", all_records.len());
+        self.process_records(&all_records);
+    }
+
+    pub fn tick(&mut self) -> (Vec<ZeroConfigCommand>, Duration) {
         // Build a list of all the rr that need attention or expiration
         while let Some(attention_element) = self.attention_list.peek() {
             if attention_element.attention_needed_on > self.now {
@@ -342,7 +343,7 @@ impl ZeroConfig {
 
             // Where are we in the rr lifecycle?
             let lifecycle_fraction =
-                (now - element.created_on).as_secs_f64() / element.ttl.as_secs_f64();
+                (self.now - element.created_on).as_secs_f64() / element.ttl.as_secs_f64();
 
             // Is the RR expired?
             if !(0.0..1.0).contains(&lifecycle_fraction) {
@@ -372,17 +373,27 @@ impl ZeroConfig {
                 + Duration::from_secs_f64(
                     element.ttl.as_secs_f64() * next_lifecycle_state.next_ttl_fraction(),
                 );
-            rr.next_lifecycle_state = next_lifecycle_state;
+            rr.lifecycle_state = next_lifecycle_state;
             self.create_query_for_record(&rr);
             self.attention_list.push(Rc::new(rr));
         }
 
-        debug!("Store size={}, atention size={}", self.store.len(), self.attention_list.len());
+        debug!("Store size={}, attention size={}", self.store.len(), self.attention_list.len());
 
         // Generate a diff and send commands to create/delete/update
         self.create_diff_commands();
 
-        take(self.commands.as_mut())
+        (take(self.commands.as_mut()), self.calculate_next_attention_duration())
+    }
+
+    fn calculate_next_attention_duration(&self) -> Duration {
+        // Calculate next attention
+        let mut duration = Duration::from_secs(60);
+        if let Some(rr) = self.attention_list.peek() {
+            duration = rr.attention_needed_on.duration_since(self.now);
+            debug!("Next attention in {}ms for {rr:?}", duration.as_millis());
+        }
+        duration
     }
 
     fn create_query_for_record(&mut self, rr: &RR) {
@@ -509,8 +520,9 @@ mod tests {
             ptr_with_ttl(&service.service_type_with_local, &fq_service, DEFAULT_SHORT_TTL as u32),
         ];
 
-        let now = Instant::now();
-        let cmds = zero_conf.update(now, answers, vec![], vec![]);
+        zero_conf.set_time(Instant::now());
+        zero_conf.push_records(answers, vec![], vec![]);
+        let (cmds, _) = zero_conf.tick();
         assert_eq!(cmds.len(), 0);
     }
 
@@ -553,7 +565,9 @@ mod tests {
             DEFAULT_SHORT_TTL as u32,
         ));
 
-        let cmds = zero_conf.update(Instant::now(), answers, vec![], vec![]);
+        zero_conf.set_time(Instant::now());
+        zero_conf.push_records(answers, vec![], vec![]);
+        let (cmds, _) = zero_conf.tick();
         assert_ne!(cmds.len(), 0);
         let cmd = cmds.first().unwrap();
         match cmd {
@@ -589,7 +603,9 @@ mod tests {
         );
         let fq_service = service.fq_name();
         let answers = vec![ptr_with_ttl(&service.service_type_with_local, &fq_service, 0)];
-        let cmds = zero_conf.update(Instant::now(), answers, vec![], vec![]);
+        zero_conf.set_time(Instant::now());
+        zero_conf.push_records(answers, vec![], vec![]);
+        let (cmds, _) = zero_conf.tick();
         assert_eq!(cmds.len(), 0);
     }
 
@@ -619,7 +635,9 @@ mod tests {
         ];
 
         let now = Instant::now();
-        let cmds = zero_conf.update(now, answers, vec![], vec![]);
+        zero_conf.set_time(now);
+        zero_conf.push_records(answers, vec![], vec![]);
+        let (cmds, _) = zero_conf.tick();
         assert_eq!(cmds.len(), 1);
         let ZeroConfigCommand::CreateService { .. } = cmds.first().unwrap() else {
             panic!("Unexpected command {:?}", cmds.first().unwrap());
@@ -627,8 +645,9 @@ mod tests {
 
         // Now let's expire the service
         let answers = vec![ptr_with_ttl(&service.service_type_with_local, &fq_service, 0)];
-
-        let cmds = zero_conf.update(now + Duration::from_secs(1), answers, vec![], vec![]);
+        zero_conf.set_time(now + Duration::from_secs(1));
+        zero_conf.push_records(answers, vec![], vec![]);
+        let (cmds, _) = zero_conf.tick();
         assert_ne!(cmds.len(), 0);
         let cmd = cmds.first().unwrap();
         match cmd {
@@ -670,20 +689,24 @@ mod tests {
 
         // Add the service with a first update
         let epoch = Instant::now();
-        let cmds = zero_conf.update(epoch, answers, vec![], vec![]);
+        zero_conf.set_time(epoch);
+        zero_conf.push_records(answers, vec![], vec![]);
+        let (cmds, _) = zero_conf.tick();
         assert_eq!(cmds.len(), 1);
 
         // Advance virtual time to 79% of DEFAULT_SHORT_TTLs records). This should NOT expire anything or trigger probes
         let mut fraction = RRLifecycle::Created.next_ttl_fraction() - 0.01;
         let mut now = epoch + Duration::from_secs_f64(fraction * DEFAULT_SHORT_TTL);
         debug!("Elapsed time: {:?}", epoch.duration_since(now));
-        let mut cmds = zero_conf.update_with_time(now);
+        zero_conf.set_time(now);
+        let (mut cmds, _) = zero_conf.tick();
         assert_eq!(cmds.len(), 0);
 
         // Set virtual time to 81% of DEFAULT_SHORT_TTLs records (97s) . This should trigger probes for the 80% block.
         fraction = RRLifecycle::Created.next_ttl_fraction() + 0.01;
         now = epoch + Duration::from_secs_f64(fraction * DEFAULT_SHORT_TTL);
-        cmds = zero_conf.update_with_time(now);
+        zero_conf.set_time(now);
+        (cmds, _) = zero_conf.tick();
         assert_eq!(cmds.len(), 4);
         for cmd in &cmds {
             match cmd {
@@ -698,13 +721,15 @@ mod tests {
         // already sent.
         fraction = RRLifecycle::Created.next_ttl_fraction() + 0.03;
         now = epoch + Duration::from_secs_f64(fraction * DEFAULT_SHORT_TTL);
-        cmds = zero_conf.update_with_time(now);
+        zero_conf.set_time(now);
+        (cmds, _) = zero_conf.tick();
         assert_eq!(cmds.len(), 0);
 
         // Set virtual time to 87% of DEFAULT_SHORT_TTLs records. This should trigger probes again for the 85% block.
         fraction = RRLifecycle::Probed80.next_ttl_fraction() + 0.02;
         now = epoch + Duration::from_secs_f64(fraction * DEFAULT_SHORT_TTL);
-        cmds = zero_conf.update_with_time(now);
+        zero_conf.set_time(now);
+        (cmds, _) = zero_conf.tick();
         assert_eq!(cmds.len(), 4);
         for cmd in &cmds {
             match cmd {
@@ -719,13 +744,15 @@ mod tests {
         // already sent for the 85% block.
         fraction = RRLifecycle::Probed80.next_ttl_fraction() + 0.02;
         now = epoch + Duration::from_secs_f64(fraction * DEFAULT_SHORT_TTL);
-        cmds = zero_conf.update_with_time(now);
+        zero_conf.set_time(now);
+        (cmds, _) = zero_conf.tick();
         assert_eq!(cmds.len(), 0);
 
         // Set virtual time to 90% of DEFAULT_SHORT_TTLs records. This should trigger probes again for the 90% block.
         fraction = RRLifecycle::Probed90.next_ttl_fraction();
         now = epoch + Duration::from_secs_f64(fraction * DEFAULT_SHORT_TTL);
-        cmds = zero_conf.update_with_time(now);
+        zero_conf.set_time(now);
+        (cmds, _) = zero_conf.tick();
         assert_eq!(cmds.len(), 4);
         for cmd in &cmds {
             match cmd {
@@ -740,13 +767,15 @@ mod tests {
         // already sent for the 90% block.
         fraction = RRLifecycle::Probed90.next_ttl_fraction() + 0.01;
         now = epoch + Duration::from_secs_f64(fraction * DEFAULT_SHORT_TTL);
-        cmds = zero_conf.update_with_time(now);
+        zero_conf.set_time(now);
+        (cmds, _) = zero_conf.tick();
         assert_eq!(cmds.len(), 0);
 
         // Set virtual time to 101% of DEFAULT_SHORT_TTLs records. This should expire A, AAAA, SRV, and TXT records.
         fraction = RRLifecycle::Probed95.next_ttl_fraction() + 0.01;
         now = epoch + Duration::from_secs_f64(fraction * DEFAULT_SHORT_TTL);
-        cmds = zero_conf.update_with_time(now);
+        zero_conf.set_time(now);
+        (cmds, _) = zero_conf.tick();
         assert_eq!(cmds.len(), 1);
 
         let delete_cmd = cmds.first().unwrap();
@@ -770,7 +799,8 @@ mod tests {
         // Now let's see about PTR probes
         fraction = RRLifecycle::Created.next_ttl_fraction() + 0.01;
         now = epoch + Duration::from_secs_f64(fraction * DEFAULT_LONG_TTL);
-        cmds = zero_conf.update_with_time(now);
+        zero_conf.set_time(now);
+        (cmds, _) = zero_conf.tick();
         assert_eq!(cmds.len(), 1);
         for cmd in &cmds {
             match cmd {
@@ -784,13 +814,15 @@ mod tests {
         // At 82% nothing should happen since probe was sent.
         fraction = RRLifecycle::Created.next_ttl_fraction() + 0.02;
         now = epoch + Duration::from_secs_f64(fraction * DEFAULT_LONG_TTL);
-        cmds = zero_conf.update_with_time(now);
+        zero_conf.set_time(now);
+        (cmds, _) = zero_conf.tick();
         assert_eq!(cmds.len(), 0);
 
         // At 86%, another probe should be fired.
         fraction = RRLifecycle::Probed80.next_ttl_fraction() + 0.01;
         now = epoch + Duration::from_secs_f64(fraction * DEFAULT_LONG_TTL);
-        cmds = zero_conf.update_with_time(now);
+        zero_conf.set_time(now);
+        (cmds, _) = zero_conf.tick();
         assert_eq!(cmds.len(), 1);
         for cmd in &cmds {
             match cmd {
@@ -804,14 +836,16 @@ mod tests {
         // At 87% nothing should happen since probe was sent in 85% block.
         fraction = RRLifecycle::Probed80.next_ttl_fraction() + 0.02;
         now = epoch + Duration::from_secs_f64(fraction * DEFAULT_LONG_TTL);
-        cmds = zero_conf.update_with_time(now);
+        zero_conf.set_time(now);
+        (cmds, _) = zero_conf.tick();
         assert_eq!(cmds.len(), 0);
         assert_eq!(zero_conf.store.ptrs.len(), 1);
 
         // At 91%, another probe should be fired.
         fraction = RRLifecycle::Probed85.next_ttl_fraction() + 0.01;
         now = epoch + Duration::from_secs_f64(fraction * DEFAULT_LONG_TTL);
-        cmds = zero_conf.update_with_time(now);
+        zero_conf.set_time(now);
+        (cmds, _) = zero_conf.tick();
         assert_eq!(cmds.len(), 1);
         for cmd in &cmds {
             match cmd {
@@ -825,14 +859,16 @@ mod tests {
         // At 92% nothing should happen since probe was sent in previous block.
         fraction = RRLifecycle::Probed85.next_ttl_fraction() + 0.02;
         now = epoch + Duration::from_secs_f64(fraction * DEFAULT_LONG_TTL);
-        cmds = zero_conf.update_with_time(now);
+        zero_conf.set_time(now);
+        (cmds, _) = zero_conf.tick();
         assert_eq!(cmds.len(), 0);
         assert_eq!(zero_conf.store.ptrs.len(), 1);
 
         // At 96%, another probe should be fired.
         fraction = RRLifecycle::Probed90.next_ttl_fraction() + 0.01;
         now = epoch + Duration::from_secs_f64(fraction * DEFAULT_LONG_TTL);
-        cmds = zero_conf.update_with_time(now);
+        zero_conf.set_time(now);
+        (cmds, _) = zero_conf.tick();
         assert_eq!(cmds.len(), 1);
         for cmd in &cmds {
             match cmd {
@@ -846,7 +882,8 @@ mod tests {
         // At 97% nothing should happen since probe was sent in previous block.
         fraction = RRLifecycle::Probed90.next_ttl_fraction() + 0.02;
         now = epoch + Duration::from_secs_f64(fraction * DEFAULT_LONG_TTL);
-        cmds = zero_conf.update_with_time(now);
+        zero_conf.set_time(now);
+        (cmds, _) = zero_conf.tick();
         assert_eq!(cmds.len(), 0);
         assert_eq!(zero_conf.store.ptrs.len(), 1);
 
@@ -854,7 +891,8 @@ mod tests {
         // entries
         fraction = RRLifecycle::Probed95.next_ttl_fraction();
         now = epoch + Duration::from_secs_f64(fraction * DEFAULT_LONG_TTL);
-        cmds = zero_conf.update_with_time(now);
+        zero_conf.set_time(now);
+        (cmds, _) = zero_conf.tick();
         assert_eq!(0, cmds.len());
         assert_eq!(zero_conf.store.ptrs.len(), 0);
 
@@ -893,21 +931,30 @@ mod tests {
 
         // Add the service with a first update
         let epoch = Instant::now();
-        let cmds = zero_conf.update(epoch, answers.clone(), vec![], vec![]);
+        zero_conf.set_time(epoch);
+        zero_conf.push_records(answers.clone(), vec![], vec![]);
+        let (mut cmds, _) = zero_conf.tick();
         assert_eq!(cmds.len(), 1);
 
         // Advance time by 50% of short ttl, add service again
-        let mut cmds = zero_conf.update_with_time(epoch);
+        let mut fraction = 0.5;
+        let mut now = epoch + Duration::from_secs_f64(fraction * DEFAULT_SHORT_TTL);
+        zero_conf.set_time(now);
+        zero_conf.push_records(answers.clone(), vec![], vec![]);
+        (cmds, _) = zero_conf.tick();
         assert_eq!(0, cmds.len());
 
         // Advance time to when things should have been expired by now but the update should have extended the TTLs
-        cmds = zero_conf.update(epoch, answers.clone(), vec![], vec![]);
+        fraction = 1.5;
+        now = epoch + Duration::from_secs_f64(fraction * DEFAULT_SHORT_TTL);
+        zero_conf.set_time(now);
+        zero_conf.push_records(answers.clone(), vec![], vec![]);
+        (cmds, _) = zero_conf.tick();
         assert_eq!(0, cmds.len());
 
-        let fraction = RRLifecycle::Probed95.next_ttl_fraction();
-        let now =
-            epoch + Duration::from_secs_f64(fraction * DEFAULT_LONG_TTL + 0.5 * DEFAULT_SHORT_TTL);
-        cmds = zero_conf.update_with_time(now);
+        now = epoch + Duration::from_secs_f64(DEFAULT_LONG_TTL * 2.0);
+        zero_conf.set_time(now);
+        (cmds, _) = zero_conf.tick();
         assert_eq!(1, cmds.len());
 
         let delete_cmd = cmds.first().unwrap();
@@ -960,8 +1007,12 @@ mod tests {
             DEFAULT_SHORT_TTL as u32,
         ));
 
-        zero_conf.update(now, answers, vec![], vec![])
+        zero_conf.set_time(now);
+        zero_conf.push_records(answers, vec![], vec![]);
+        let (cmd, _) = zero_conf.tick();
+        cmd
     }
+
     #[test]
     fn test_multiple_devices() {
         let mut zero_conf = ZeroConfig::new();
@@ -1066,7 +1117,9 @@ mod tests {
 
         // Make sure first record expires
         now = epoch + Duration::from_secs(122);
-        cmds = zero_conf.update_with_time(now);
+        zero_conf.set_time(now);
+        (cmds, _) = zero_conf.tick();
+
         assert_eq!(6, cmds.len());
         let delete_cmd = cmds.first().unwrap();
         match delete_cmd {
@@ -1083,7 +1136,8 @@ mod tests {
 
         // Now expire the second record
         now = epoch + Duration::from_secs(152);
-        cmds = zero_conf.update_with_time(now);
+        zero_conf.set_time(now);
+        (cmds, _) = zero_conf.tick();
         assert_eq!(1, cmds.len());
         let delete_cmd = cmds.first().unwrap();
         match delete_cmd {
@@ -1196,7 +1250,8 @@ mod tests {
         };
 
         now = epoch + Duration::from_secs(121);
-        cmds = zero_conf.update_with_time(now);
+        zero_conf.set_time(now);
+        (cmds, _) = zero_conf.tick();
         let delete_cmd = cmds.first().unwrap();
         match delete_cmd {
             ZeroConfigCommand::DeleteService { instance_name, service_type } => {
@@ -1210,7 +1265,8 @@ mod tests {
         }
 
         now = epoch + Duration::from_secs(181);
-        cmds = zero_conf.update_with_time(now);
+        zero_conf.set_time(now);
+        (cmds, _) = zero_conf.tick();
         let delete_cmd = cmds.first().unwrap();
         match delete_cmd {
             ZeroConfigCommand::DeleteService { instance_name, service_type } => {

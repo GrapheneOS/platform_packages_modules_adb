@@ -144,27 +144,26 @@ impl ZeroConfigDriver {
     }
 
     fn process_packet(&mut self, packet: Packet) {
-        let commands = self.zero_config.update(
-            Instant::now(),
+        self.zero_config.push_records(
             packet.answers,
             packet.additional_records,
             packet.name_servers,
         );
-
-        for command in commands {
-            self.process_command(&command);
-        }
     }
 
-    fn handle_socket_readable(&mut self, socket_id: usize) -> Result<()> {
+    fn handle_socket_readable(&mut self, socket_id: usize) {
         let mut buf = [0u8; 65535];
         // Poll is ET (Edge-Triggered), we need to drain the socket buffer until it is empty.
         loop {
             match self.io[socket_id].socket.recv(&mut buf) {
-                Ok(len) => {
-                    let packets = Packet::parse(&buf[..len])?;
-                    self.process_packet(packets);
-                }
+                Ok(len) => match Packet::parse(&buf[..len]) {
+                    Ok(packet) => {
+                        self.process_packet(packet);
+                    }
+                    Err(e) => {
+                        error!("Error parsing packet {e}");
+                    }
+                },
                 Err(e) => {
                     if e.kind() != WouldBlock {
                         error!("Error in receiving on ZeroConfigDriverChannelReceiver: {e}");
@@ -173,10 +172,17 @@ impl ZeroConfigDriver {
                 }
             }
         }
-        Ok(())
     }
 
-    fn process_events(&mut self, events: &Events) -> Result<()> {
+    fn process_events(&mut self, events: &Events) -> Duration {
+        self.zero_config.set_time(Instant::now());
+
+        // No events mean the poll timed out. We just need to see what RR have expired.
+        if events.is_empty() {
+            debug!("No events, this was a timeout. Updating");
+            return self.update();
+        }
+
         for event in events.iter() {
             if !event.is_readable() {
                 continue;
@@ -192,9 +198,18 @@ impl ZeroConfigDriver {
                 continue;
             }
 
-            self.handle_socket_readable(event.token().0)?;
+            self.handle_socket_readable(event.token().0);
+            return self.update();
         }
-        Ok(())
+        self.update()
+    }
+
+    fn update(&mut self) -> Duration {
+        let (commands, next_attention) = self.zero_config.tick();
+        for command in commands {
+            self.process_command(&command);
+        }
+        next_attention
     }
 
     fn run(&mut self) -> Result<()> {
@@ -227,11 +242,12 @@ impl ZeroConfigDriver {
         )?;
 
         let mut events = Events::with_capacity(self.io.len() + 1);
+        let mut timeout: Duration = Duration::from_millis(0);
         while self.running {
-            // TODO timeout should be set according to the attention list in ZeroConf. For now
-            // we never timeout
-            poller.poll(&mut events, None)?;
-            self.process_events(&events)?;
+            timeout = timeout.clamp(Duration::from_millis(300), Duration::from_secs(120));
+            debug!("ZeroConfigDriver polling with timeout={}ms", timeout.as_millis());
+            poller.poll(&mut events, Some(timeout))?;
+            timeout = self.process_events(&events);
         }
 
         debug!("ZeroConfigDriver stopping...");
