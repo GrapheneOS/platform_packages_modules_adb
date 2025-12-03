@@ -90,9 +90,15 @@ bool parse_tcp_socket_spec(std::string_view spec, std::string* hostname, int* po
     std::string hostname_value;
     int port_value;
 
+    std::string after_tcp{spec.substr(4)};
+    if (after_tcp.empty()) {
+        *error = "string after tcp specification is empty";
+        return false;
+    }
+
     // If the spec is tcp:<port>, parse it ourselves.
     // Otherwise, delegate to android::base::ParseNetAddress.
-    if (android::base::ParseInt(&spec[4], &port_value)) {
+    if (android::base::ParseInt(&after_tcp[0], &port_value)) {
         // Do the range checking ourselves, because ParseInt rejects 'tcp:65536' and 'tcp:foo:1234'
         // identically.
         if (port_value < 0 || port_value > 65535) {
@@ -100,13 +106,12 @@ bool parse_tcp_socket_spec(std::string_view spec, std::string* hostname, int* po
             return false;
         }
     } else {
-        std::string addr(spec.substr(4));
         port_value = DEFAULT_ADB_LOCAL_TRANSPORT_PORT;
 
         // FIXME: ParseNetAddress rejects port 0. This currently doesn't hurt, because listening
         //        on an address that isn't 'localhost' is unsupported.
-        if (!android::base::ParseNetAddress(addr, &hostname_value, &port_value, canonical_address,
-                                            error)) {
+        if (!android::base::ParseNetAddress(after_tcp, &hostname_value, &port_value,
+                                            canonical_address, error)) {
             return false;
         }
     }
