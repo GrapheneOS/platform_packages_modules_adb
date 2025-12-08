@@ -59,6 +59,18 @@ TEST(socket_spec, parse_tcp_socket_spec_bad_ports_failure) {
     EXPECT_FALSE(parse_tcp_socket_spec("tcp:65536", &hostname, &port, &serial, &error));
 }
 
+// Ensure that parsing doesn't overread the string_view that's passed in.
+TEST(socket_spec, parse_tcp_socket_string_view_overread) {
+    std::string hostname, error, serial;
+    int port;
+
+    std::string_view partial_port("tcp:5037", 4);
+    EXPECT_FALSE(parse_tcp_socket_spec(partial_port, &hostname, &port, &serial, &error));
+
+    std::string_view partial_spec("tcp:localhost:1234", 4);
+    EXPECT_FALSE(parse_tcp_socket_spec(partial_spec, &hostname, &port, &serial, &error));
+}
+
 TEST(socket_spec, parse_tcp_socket_spec_host_and_port_success) {
     std::string hostname, error, serial;
     int port;

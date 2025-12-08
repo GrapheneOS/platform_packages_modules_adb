@@ -64,7 +64,7 @@ TEST_F(AdbPairingAuthTest, EmptyPassword) {
             "");
     ASSERT_DEATH(
             {
-                uint8_t p;
+                uint8_t p = 0;
                 client = PairingAuthUniquePtr(pairing_auth_client_new(&p, 0), PairingAuthDeleter);
             },
             "");
