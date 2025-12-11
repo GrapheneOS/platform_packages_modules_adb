@@ -90,7 +90,6 @@ class DeployPatchGenerator {
      * |byte[]|   Patch data
      * |long|     Offset of data to use already on device
      * |long|     Length of data to read from device APK
-     * TODO(b/138306784): Move the patch format to a proto.
      */
     void ReportSavings(const std::vector<SimpleEntry>& identicalEntries, uint64_t totalSize);
 
