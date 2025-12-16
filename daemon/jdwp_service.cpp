@@ -322,15 +322,7 @@ static bool is_process_in_freezer(const ProcessInfo& info) {
         return false;
     }
 
-    bool is_frozen = content == "1\n";
-    VLOG(JDWP) << std::format("Checking if pid {} is frozen at '{}' = '{}'", info.pid, path,
-                              content);
-
-    if (is_frozen) {
-        LOG(WARNING) << std::format("According to '{}'(='{}'), pid {} is frozen", path, content,
-                                    info.pid);
-    }
-    return is_frozen;
+    return content == "1\n";
 }
 
 static unique_fd send_socket_to_process(JdwpProcess& proc) {
