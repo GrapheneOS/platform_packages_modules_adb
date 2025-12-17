@@ -85,7 +85,7 @@ bool is_enabled() {
 // 2 = Adbmdns
 bool should_use_openscreen() {
     const char* mdns_osp = getenv("ADB_MDNS_OPENSCREEN");
-    return mdns_osp == nullptr || strcmp(mdns_osp, "2") != 0;
+    return mdns_osp != nullptr && strcmp(mdns_osp, "1") == 0;
 }
 
 }  // namespace mdns
