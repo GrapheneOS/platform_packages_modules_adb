@@ -23,7 +23,7 @@ where
         IndexMinPQ { data: Vec::new(), index: HashMap::new() }
     }
 
-    pub fn len(&self) -> usize {
+    pub(crate) fn len(&self) -> usize {
         self.data.len()
     }
 

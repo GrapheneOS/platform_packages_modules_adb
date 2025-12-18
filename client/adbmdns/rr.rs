@@ -150,7 +150,7 @@ pub(crate) struct RR {
     pub(crate) attention_needed_on: Instant,
     pub(crate) created_on: Instant,
     pub(crate) ttl: Duration,
-    pub(crate) next_lifecycle_state: RRLifecycle,
+    pub(crate) lifecycle_state: RRLifecycle,
     pub(crate) payload: RRPayload,
 }
 
@@ -166,7 +166,7 @@ impl RR {
         RR {
             created_on: now,
             ttl,
-            next_lifecycle_state: state.clone(),
+            lifecycle_state: state.clone(),
             attention_needed_on: now + Duration::from_secs_f64(duration_next_attention),
             payload,
         }

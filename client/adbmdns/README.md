@@ -75,16 +75,3 @@ the driver to interact with the network/adb.
 This architecture enables better testing. By injecting synthetic packets
 into the core, virtualizing its time tracking, and analyzing output commands, we can better test
 it.
-
-## TODO
-
-This is a pre-alpha implementation to get us bootstrapped. Outstanding items:
-
-- Cleanup libadbmdns bridge. i32 indicating vector size should be u32, the port should be a u16.
-- Add support for TXT packets
-- Properly detect new services (we rely on a hack where all the packets where service announcement are include in
-a query.
-- Properly expire services that don't send goodbye packets.
-- Connect networks state monitor so a mDNS scan is issued when a host reconnects to a network.
-- Open a socket on all interfaces. Some configuration (such as a wifi network without access to internet)
-fail to work properly with the current one socket approach.
