@@ -152,9 +152,8 @@ fn parse<T: fmt::Debug + FromBytes + Immutable + KnownLayout + fmt::Display>(
     buffer: &[u8],
 ) -> Result<()> {
     let type_name = std::any::type_name::<T>();
-    let (msg, _) = T::ref_from_prefix(buffer)
-        .map_err(|_err| anyhow!("failed to parse {} message", type_name))?;
-    log::info!("Parsed type={} into '{}'", std::any::type_name::<T>(), msg);
+    T::ref_from_prefix(buffer)
+        .map_err(|err| anyhow!("failed to parse {} message: {:?}", type_name, err))?;
     Ok(())
 }
 
@@ -174,9 +173,7 @@ fn parse_message(buffer: &[u8]) -> Result<()> {
         RTM_IFINFO => {
             parse::<IfMsghdr>(buffer)?;
         }
-        _ => {
-            log::info!("Unhandled message {} ", message_type_to_string(rt_msg.msg_type));
-        }
+        _ => {}
     }
     Ok(())
 }
@@ -188,7 +185,6 @@ fn listen(callback: &(impl Fn() + Send + Sized)) -> Result<()> {
     loop {
         let mut buffer = [0u8; 65535];
         let bytes_read = socket.read(&mut buffer)?;
-        log::debug!("Read {} bytes", bytes_read);
         let _ = parse_message(&buffer[0..bytes_read]);
         callback();
     }
