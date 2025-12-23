@@ -152,6 +152,7 @@ impl ZeroConfig {
     }
 
     fn add_rr(&mut self, rr: Rc<RR>) {
+        debug!("Processing RR: {:?}", rr.payload);
         self.attention_list.push(rr.clone());
 
         // Also add to store
@@ -160,25 +161,17 @@ impl ZeroConfig {
 
     fn process_records(&mut self, records: &Vec<ResourceRecord>) {
         for record in records {
-            log::debug!("Processing {:?}", record);
             let rr = match &record.rdata {
                 PTR(ptr) => {
                     let pointer = match FQServiceName::try_from(&ptr.0) {
                         Ok(s) => s,
                         Err(_) => {
-                            log::debug!(
-                                "   Discarding non-FQServiceName {:?} in {record:?}",
-                                ptr.0
-                            );
                             continue;
                         }
                     };
 
                     let service_type_with_local = &pointer.service_type_with_local;
                     if !self.tracked_services.contains_key(service_type_with_local) {
-                        log::debug!(
-                            "   Discarding non-tracked service {service_type_with_local:?} in {record:?}"
-                        );
                         continue;
                     }
                     Some(RR::new(
@@ -191,19 +184,11 @@ impl ZeroConfig {
                     let name = match FQServiceName::try_from(&record.name) {
                         Ok(s) => s,
                         Err(_) => {
-                            log::debug!(
-                                "   Discarding non-FQServiceName {:?} in {record:?}",
-                                record.name
-                            );
                             continue;
                         }
                     };
 
                     if !self.tracked_services.contains_key(&name.service_type_with_local) {
-                        log::debug!(
-                            "   Discarding non-tracked service {} in {record:?}",
-                            name.service_type
-                        );
                         continue;
                     }
                     Some(RR::new(
@@ -233,19 +218,11 @@ impl ZeroConfig {
                     let name = match FQServiceName::try_from(&record.name) {
                         Ok(s) => s,
                         Err(_) => {
-                            log::debug!(
-                                "   Discarding non FQServiceName {} in {record:?}",
-                                record.name
-                            );
                             continue;
                         }
                     };
 
                     if !self.tracked_services.contains_key(&name.service_type_with_local) {
-                        log::debug!(
-                            "   Discarding non-tracker service {} in {record:?}",
-                            name.service_type
-                        );
                         continue;
                     }
                     Some(RR::new(
