@@ -289,8 +289,8 @@ impl ZeroConfig {
                         service_type: service.service_type.clone(),
                         ipv4s: details.ipv4s.clone(),
                         ipv6s: details.ipv6s.clone(),
-                        port: 0,
-                        txt: TxtAttributes::new(),
+                        port: details.port,
+                        txt: details.txt.clone(),
                     });
                 }
             }
@@ -524,6 +524,122 @@ mod tests {
         zero_conf.push_records(answers, vec![], vec![]);
         let (cmds, _) = zero_conf.tick();
         assert_eq!(cmds.len(), 0);
+    }
+
+    #[test]
+    fn test_update_service_records() {
+        let mut zero_conf = ZeroConfig::new();
+
+        // Let's create a service
+        let service_port = 5555u16;
+        let service = FQServiceName::new(
+            "InstanceName".to_string(),
+            TLS_CONNECT_SERVICE.to_string(),
+            "local".to_string(),
+        );
+        let fq_service = service.fq_name();
+        let ipv4 = Ipv4Addr::new(127, 0, 0, 1);
+        let ipv6 = Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1);
+        let target = "MyTarget.local";
+        let mut txt_attributes = TxtAttributes::new();
+        txt_attributes.insert("name".to_owned(), "fab".to_owned());
+
+        let answers = vec![
+            txt(&fq_service, &txt_attributes),
+            a(target, ipv4),
+            aaaa(target, ipv6),
+            srv(&fq_service, target, service_port),
+            ptr(&service.service_type_with_local, &fq_service),
+        ];
+
+        let mut now = Instant::now();
+        zero_conf.set_time(now);
+        zero_conf.push_records(answers, vec![], vec![]);
+        let (cmds, _) = zero_conf.tick();
+        assert_eq!(cmds.len(), 1);
+        let create_cmd = cmds.first().unwrap();
+        match create_cmd {
+            ZeroConfigCommand::CreateService {
+                instance_name,
+                service_type,
+                ipv4s,
+                ipv6s,
+                port,
+                txt,
+            } => {
+                assert_eq!(service.instance_name, *instance_name);
+                assert_eq!(service.service_type, *service_type);
+                assert_eq!(*port, service_port);
+                assert_eq!(*txt, txt_attributes);
+                assert!(ipv4s.contains(&ipv4));
+                assert!(ipv6s.contains(&ipv6));
+                assert_eq!(0, zero_conf.commands.len())
+            }
+            _ => {
+                panic!("Unexpected command {create_cmd:?}");
+            }
+        }
+
+        now += Duration::from_secs(2);
+        zero_conf.set_time(now);
+        let mut txt_attributes_update = TxtAttributes::new();
+        txt_attributes_update.insert("name".to_owned(), "fab2".to_owned());
+        let txt_updates = vec![txt(&fq_service, &txt_attributes_update)];
+        zero_conf.push_records(txt_updates, vec![], vec![]);
+        let (cmds, _) = zero_conf.tick();
+        assert_eq!(cmds.len(), 1);
+        let update_cmd = cmds.first().unwrap();
+        match update_cmd {
+            ZeroConfigCommand::UpdateService {
+                instance_name,
+                service_type,
+                ipv4s,
+                ipv6s,
+                port,
+                txt,
+            } => {
+                assert_eq!(service.instance_name, *instance_name);
+                assert_eq!(service.service_type, *service_type);
+                assert_eq!(*txt, txt_attributes_update);
+                assert_eq!(*port, service_port);
+                assert!(ipv4s.contains(&ipv4));
+                assert!(ipv6s.contains(&ipv6));
+                assert_eq!(0, zero_conf.commands.len())
+            }
+            _ => {
+                panic!("Unexpected command {update_cmd:?}");
+            }
+        }
+
+        now += Duration::from_secs(2);
+        zero_conf.set_time(now);
+        let new_port = 6666;
+        let txt_updates = vec![srv(&fq_service, target, new_port)];
+        zero_conf.push_records(txt_updates, vec![], vec![]);
+        let (cmds, _) = zero_conf.tick();
+        assert_eq!(cmds.len(), 1);
+        let cmd = cmds.first().unwrap();
+        match cmd {
+            ZeroConfigCommand::UpdateService {
+                instance_name,
+                service_type,
+                ipv4s,
+                ipv6s,
+                port,
+                txt,
+            } => {
+                assert_eq!(service.instance_name, *instance_name);
+                assert_eq!(service.service_type, *service_type);
+                assert_eq!(*port, new_port);
+                assert_eq!(*txt, txt_attributes_update);
+                assert!(ipv4s.contains(&ipv4));
+                assert!(ipv6s.contains(&ipv6));
+                assert_eq!(0, zero_conf.commands.len())
+            }
+            _ => {
+                panic!("Unexpected command {cmd:?}");
+            }
+        }
     }
 
     #[test]

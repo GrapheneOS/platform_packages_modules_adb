@@ -177,12 +177,6 @@ impl ZeroConfigDriver {
     fn process_events(&mut self, events: &Events) -> Duration {
         self.zero_config.set_time(Instant::now());
 
-        // No events mean the poll timed out. We just need to see what RR have expired.
-        if events.is_empty() {
-            debug!("No events, this was a timeout. Updating");
-            return self.update();
-        }
-
         for event in events.iter() {
             if !event.is_readable() {
                 continue;
@@ -199,16 +193,13 @@ impl ZeroConfigDriver {
             }
 
             self.handle_socket_readable(event.token().0);
-            return self.update();
         }
-        self.update()
-    }
 
-    fn update(&mut self) -> Duration {
         let (commands, next_attention) = self.zero_config.tick();
         for command in commands {
             self.process_command(&command);
         }
+
         next_attention
     }
 
