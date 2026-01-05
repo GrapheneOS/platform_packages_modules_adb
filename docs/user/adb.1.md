@@ -60,6 +60,17 @@ devices [**-l**]
 **-l**
 &nbsp;&nbsp;&nbsp;&nbsp;Use long output.
 
+track-devices [-l][--proto-text][--proto-binary] Same as the 'device' command, but does not return. It sends updates when the list of devices changes.
+
+**-l**
+&nbsp;&nbsp;&nbsp;&nbsp;Use legacy long output.
+
+**-proto-text**
+&nbsp;&nbsp;&nbsp;&nbsp;Use protobuf output.
+
+**-proto-binary**
+&nbsp;&nbsp;&nbsp;&nbsp;Use binary protobuf output.
+
 help
 &nbsp;&nbsp;&nbsp;&nbsp;Show this help message.
 
