@@ -1372,7 +1372,7 @@ HostRequestResult handle_host_request(std::string_view service, TransportType ty
             if (mdns::should_use_openscreen()) {
                 status.set_mdns_backend(adb::proto::AdbServerStatus::OPENSCREEN);
             } else {
-                status.set_mdns_backend(adb::proto::AdbServerStatus::ADBMDNS);
+                status.set_mdns_backend(adb::proto::AdbServerStatus::LIBADBMDNS);
             }
         } else {
             status.set_mdns_backend(adb::proto::AdbServerStatus::MDNS_DISABLED);
