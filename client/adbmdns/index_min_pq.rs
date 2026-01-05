@@ -11,6 +11,13 @@ pub(crate) struct IndexMinPQ<T> {
     index: HashMap<T, usize>,
 }
 
+impl<T> IndexMinPQ<T> {
+    pub(crate) fn clear(&mut self) {
+        self.data.clear();
+        self.index.clear();
+    }
+}
+
 pub trait CompareAttention {
     fn cmp_attention(&self, other: &Self) -> Ordering;
 }
