@@ -144,6 +144,15 @@ impl ZeroConfig {
         commands
     }
 
+    // See RFC 6762,  10.3. Cache Flush on Topology change. ZeroConfig cache is flushed
+    // when it is stopped (likely from a netwatch event).
+    pub fn on_stop(&mut self) -> Vec<ZeroConfigCommand> {
+        self.attention_list.clear();
+        self.store.clear();
+        let (commands, _) = self.tick();
+        commands
+    }
+
     pub fn track_service(&mut self, service: String) {
         let tracked_service =
             TrackedService { service_name: service.to_owned(), local: "local".to_owned() };
@@ -152,6 +161,7 @@ impl ZeroConfig {
     }
 
     fn add_rr(&mut self, rr: Rc<RR>) {
+        debug!("Processing RR: {:?}", rr.payload);
         self.attention_list.push(rr.clone());
 
         // Also add to store
@@ -160,25 +170,17 @@ impl ZeroConfig {
 
     fn process_records(&mut self, records: &Vec<ResourceRecord>) {
         for record in records {
-            log::debug!("Processing {:?}", record);
             let rr = match &record.rdata {
                 PTR(ptr) => {
                     let pointer = match FQServiceName::try_from(&ptr.0) {
                         Ok(s) => s,
                         Err(_) => {
-                            log::debug!(
-                                "   Discarding non-FQServiceName {:?} in {record:?}",
-                                ptr.0
-                            );
                             continue;
                         }
                     };
 
                     let service_type_with_local = &pointer.service_type_with_local;
                     if !self.tracked_services.contains_key(service_type_with_local) {
-                        log::debug!(
-                            "   Discarding non-tracked service {service_type_with_local:?} in {record:?}"
-                        );
                         continue;
                     }
                     Some(RR::new(
@@ -191,19 +193,11 @@ impl ZeroConfig {
                     let name = match FQServiceName::try_from(&record.name) {
                         Ok(s) => s,
                         Err(_) => {
-                            log::debug!(
-                                "   Discarding non-FQServiceName {:?} in {record:?}",
-                                record.name
-                            );
                             continue;
                         }
                     };
 
                     if !self.tracked_services.contains_key(&name.service_type_with_local) {
-                        log::debug!(
-                            "   Discarding non-tracked service {} in {record:?}",
-                            name.service_type
-                        );
                         continue;
                     }
                     Some(RR::new(
@@ -233,19 +227,11 @@ impl ZeroConfig {
                     let name = match FQServiceName::try_from(&record.name) {
                         Ok(s) => s,
                         Err(_) => {
-                            log::debug!(
-                                "   Discarding non FQServiceName {} in {record:?}",
-                                record.name
-                            );
                             continue;
                         }
                     };
 
                     if !self.tracked_services.contains_key(&name.service_type_with_local) {
-                        log::debug!(
-                            "   Discarding non-tracker service {} in {record:?}",
-                            name.service_type
-                        );
                         continue;
                     }
                     Some(RR::new(
@@ -1392,6 +1378,77 @@ mod tests {
             }
             _ => {
                 panic!("Unexpected command {:?}", delete_cmd);
+            }
+        }
+    }
+
+    #[test]
+    fn test_on_stop() {
+        let mut zero_conf = ZeroConfig::new();
+        let epoch = Instant::now();
+        let mut now = epoch;
+
+        let port_tls = 5555u16;
+        let service_tls = FQServiceName::new(
+            "D1_InstanceName".to_string(),
+            TLS_CONNECT_SERVICE.to_string(),
+            "local".to_string(),
+        );
+        let target = "MyTarget.local";
+        let ipv4 = Ipv4Addr::new(127, 0, 0, 1);
+        let ipv6 = Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1);
+        let mut txt_attributes = TxtAttributes::new();
+        txt_attributes.insert("key".to_owned(), "value".to_owned());
+        txt_attributes.insert("key2".to_owned(), "value2".to_owned());
+        let cmds = create_service(
+            now,
+            &mut zero_conf,
+            &service_tls,
+            port_tls,
+            ipv4,
+            ipv6,
+            target,
+            &txt_attributes,
+        );
+
+        assert_eq!(cmds.len(), 1);
+        let cmd = cmds.first().unwrap();
+        match cmd {
+            ZeroConfigCommand::CreateService {
+                instance_name,
+                service_type,
+                ipv4s,
+                ipv6s,
+                port: p,
+                txt,
+            } => {
+                assert_eq!(instance_name, &service_tls.instance_name);
+                assert_eq!(service_type, &service_tls.service_type);
+                assert_eq!(port_tls, *p);
+                assert_eq!(txt, &txt_attributes);
+                assert!(ipv4s.contains(&ipv4));
+                assert_eq!(1, ipv4s.len());
+                assert!(ipv6s.contains(&ipv6));
+                assert_eq!(1, ipv6s.len());
+            }
+            _ => {
+                panic!("Unexpected command {cmd:?}");
+            }
+        };
+
+        now += Duration::from_secs(2);
+        zero_conf.set_time(now);
+
+        let cmds = zero_conf.on_stop();
+        assert_eq!(cmds.len(), 1);
+        let cmd_delete = cmds.first().unwrap();
+        match cmd_delete {
+            ZeroConfigCommand::DeleteService { instance_name, service_type } => {
+                assert_eq!(service_tls.instance_name, *instance_name);
+                assert_eq!(service_tls.service_type, *service_type);
+            }
+            _ => {
+                panic!("Unexpected command {:?}", cmd_delete);
             }
         }
     }

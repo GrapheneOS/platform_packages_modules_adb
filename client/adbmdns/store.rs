@@ -31,6 +31,16 @@ pub(crate) struct Store {
     pub(super) txts: HashMap<String, TxtAttributes>,
 }
 
+impl Store {
+    pub(crate) fn clear(&mut self) {
+        self.ipv6s.clear();
+        self.ipv4s.clear();
+        self.txts.clear();
+        self.srvs.clear();
+        self.ptrs.clear();
+    }
+}
+
 #[derive(Debug, PartialEq, Default)]
 pub(crate) struct InstanceDetails {
     pub(crate) port: u16,

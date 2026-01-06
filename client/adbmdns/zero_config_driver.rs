@@ -132,6 +132,7 @@ impl ZeroConfigDriver {
             .filter(|i| !i.is_loopback() && !i.is_link_local() && i.is_oper_up())
             .collect();
 
+        self.io.clear();
         for interface in interfaces {
             let Ok(socket) = ZeroConfigDriver::create_socket(&interface) else {
                 warn!("Unable to create socket for interface {interface:?}");
@@ -239,6 +240,10 @@ impl ZeroConfigDriver {
             debug!("ZeroConfigDriver polling with timeout={}ms", timeout.as_millis());
             poller.poll(&mut events, Some(timeout))?;
             timeout = self.process_events(&events);
+        }
+
+        for command in self.zero_config.on_stop() {
+            self.process_command(&command);
         }
 
         debug!("ZeroConfigDriver stopping...");
