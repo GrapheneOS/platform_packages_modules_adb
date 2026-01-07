@@ -5,6 +5,11 @@ LIBADB_PAIRING_SERVER {
     pairing_server_new_no_cert; # apex introduced=30
     pairing_server_destroy; # apex introduced=30
 
+    # libadb_pairing_server V2 APIs
+    pairing_server_is_feature_supported; # apex introduced=37
+    pairing_server_get_port; # apex introduced=37
+    pairing_server_stop_listening; # apex introduced=37
+
   local:
     *;
 };
