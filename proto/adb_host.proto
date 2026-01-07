@@ -73,7 +73,7 @@ message AdbServerStatus {
         UNKNOWN_MDNS = 0;
         BONJOUR = 1;
         OPENSCREEN = 2;
-        ADBMDNS = 3;
+        LIBADBMDNS = 3;
         MDNS_DISABLED = 4;
      }
 
