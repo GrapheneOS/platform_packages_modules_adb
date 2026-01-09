@@ -183,6 +183,15 @@ cc_library {
     ],
 }
 
+// For adb-jni tests to mock pairing_server.
+cc_library_headers {
+    name: "libadb_pairing_server_headers",
+    export_include_dirs: ["include"],
+    visibility: [
+        "//frameworks/base/services:__subpackages__",
+    ],
+}
+
 // For running atest (b/147158681)
 cc_library_static {
     name: "libadb_pairing_server_static",

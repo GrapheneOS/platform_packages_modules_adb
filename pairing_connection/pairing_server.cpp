@@ -19,7 +19,6 @@
 #include <sys/epoll.h>
 #include <sys/eventfd.h>
 
-#include <atomic>
 #include <deque>
 #include <iomanip>
 #include <mutex>
@@ -68,6 +67,13 @@ struct PairingServerCtx {
     // Returns the port number if PairingServerCtx was successfully started. Otherwise,
     // returns 0.
     uint16_t Start(pairing_server_result_cb cb, void* opaque);
+
+    // Returns the port opened for the server (the port opened when calling Start()).
+    uint16_t GetServerPort() const { return state_ == State::Running ? port_ : 0; }
+
+    // Stops the pairing server and waits for the server thread and connection events thread to
+    // finish.
+    void StopServerAndWait();
 
   private:
     // Setup the server socket to accept incoming connections. Returns the
@@ -126,11 +132,13 @@ struct PairingServerCtx {
     PeerInfo peer_info_;
     Data cert_;
     Data priv_key_;
-    uint16_t port_;
+    uint16_t port_ = 0;
 
     pairing_server_result_cb cb_;
     void* opaque_ = nullptr;
     bool got_valid_pairing_ = false;
+    // This flag is used to ensure that StopServerAndWait() is called only once.
+    std::once_flag server_stopped_flag_;
 
     static const int kEpollConstSocket = 0;
     // Used to break the server thread from epoll_wait
@@ -157,26 +165,7 @@ PairingServerCtx::PairingServerCtx(const Data& pswd, const PeerInfo& peer_info, 
 }
 
 PairingServerCtx::~PairingServerCtx() {
-    // Since these connections have references to us, let's make sure they
-    // destruct before us.
-    if (server_thread_.joinable()) {
-        StopServer();
-        server_thread_.join();
-    }
-
-    {
-        std::lock_guard<std::mutex> lock(conn_mutex_);
-        is_terminate_ = true;
-    }
-    conn_cv_.notify_one();
-    if (conn_events_thread_.joinable()) {
-        conn_events_thread_.join();
-    }
-
-    // Notify the cb_ if it hasn't already.
-    if (!got_valid_pairing_ && cb_ != nullptr) {
-        cb_(nullptr, opaque_);
-    }
+    StopServerAndWait();
 }
 
 uint16_t PairingServerCtx::Start(pairing_server_result_cb cb, void* opaque) {
@@ -198,6 +187,34 @@ uint16_t PairingServerCtx::Start(pairing_server_result_cb cb, void* opaque) {
 
     state_ = State::Running;
     return port_;
+}
+
+void PairingServerCtx::StopServerAndWait() {
+    // Make sure we cannot attempt to stop the server twice.
+    std::call_once(server_stopped_flag_, [this]() {
+        // Since these connections have references to us, let's make sure they
+        // destruct before us.
+        if (server_thread_.joinable()) {
+            StopServer();
+            server_thread_.join();
+        }
+
+        state_ = State::Stopped;
+
+        {
+            std::lock_guard<std::mutex> lock(conn_mutex_);
+            is_terminate_ = true;
+        }
+        conn_cv_.notify_one();
+        if (conn_events_thread_.joinable()) {
+            conn_events_thread_.join();
+        }
+
+        // Notify the cb_ if it hasn't already.
+        if (!got_valid_pairing_ && cb_ != nullptr) {
+            cb_(nullptr, opaque_);
+        }
+    });
 }
 
 void PairingServerCtx::StopServer() {
@@ -457,4 +474,22 @@ PairingServerCtx* pairing_server_new_no_cert(const uint8_t* pswd, size_t pswd_le
 void pairing_server_destroy(PairingServerCtx* ctx) {
     CHECK(ctx);
     delete ctx;
+}
+
+bool pairing_server_is_feature_supported(enum PairingServerFeature f) {
+    switch (f) {
+        case PairingServerFeature::V2:
+            return true;
+    }
+    return false;
+}
+
+uint16_t pairing_server_get_port(PairingServerCtx* ctx) {
+    CHECK(ctx);
+    return ctx->GetServerPort();
+}
+
+void pairing_server_stop_listening(PairingServerCtx* ctx) {
+    CHECK(ctx);
+    ctx->StopServerAndWait();
 }

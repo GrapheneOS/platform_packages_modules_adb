@@ -496,5 +496,48 @@ TEST_F(AdbPairingConnectionTest, DISABLED_MultipleClientsOnePass) {
               0);
 }
 
+TEST_F(AdbPairingConnectionTest, GetPortAndStopListening) {
+    std::vector<uint8_t> pswd{0x01, 0x03, 0x05, 0x07};
+    server_ = CreateServer(pswd);
+
+    // Start the server
+    ResultWaiter server_waiter;
+    std::unique_lock<std::mutex> server_lock(server_waiter.mutex_);
+
+    // Port should be 0 before connecting to a port.
+    EXPECT_EQ(0, pairing_server_get_port(server_.get()));
+
+    auto port = pairing_server_start(server_.get(), server_waiter.ResultCallback, &server_waiter);
+    ASSERT_GT(port, 0);
+    EXPECT_EQ(port, pairing_server_get_port(server_.get()));
+
+    // Stop the server. This is a blocking call that will trigger the callback.
+    // Need to unlock here as stop_listening will fire the ResultCallback, which will acquire the
+    // lock.
+    server_lock.unlock();
+    pairing_server_stop_listening(server_.get());
+    server_lock.lock();
+
+    // Port should be 0 after server shuts down.
+    EXPECT_EQ(0, pairing_server_get_port(server_.get()));
+
+    // We should get a callback that the server has stopped and there was no
+    // successful pairing.
+    ASSERT_TRUE(server_waiter.is_valid_.has_value());
+    EXPECT_FALSE(*(server_waiter.is_valid_));
+
+    // This will call pairing_server_destroy()
+    server_.reset();
+}
+
+TEST_F(AdbPairingConnectionTest, IsFeatureSupported) {
+    // kUnsupportedFeature needs bump on new features
+    static constexpr uint32_t kUnsupportedFeature =
+            static_cast<uint32_t>(PairingServerFeature::V2) + 1;
+    EXPECT_TRUE(pairing_server_is_feature_supported(PairingServerFeature::V2));
+    EXPECT_FALSE(pairing_server_is_feature_supported(
+            static_cast<PairingServerFeature>(kUnsupportedFeature)));
+}
+
 }  // namespace pairing
 }  // namespace adb

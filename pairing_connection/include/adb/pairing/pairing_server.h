@@ -106,4 +106,28 @@ PairingServerCtx* pairing_server_new_no_cert(const uint8_t* pswd, size_t pswd_le
 // @param ctx the PairingServerCtx instance to destroy.
 void pairing_server_destroy(PairingServerCtx* ctx) __INTRODUCED_IN(30);
 
+// Enum for features that can be checked with pairing_server_is_feature_supported.
+enum PairingServerFeature : uint32_t {
+    V2 = 0,  // Pairing server supports V2 APIs
+};
+
+// Returns true if the given feature is supported by the pairing server library.
+__attribute__((weak)) bool pairing_server_is_feature_supported(enum PairingServerFeature feature)
+        __INTRODUCED_IN(37);
+
+// Retrieves the port number opened with #pairing_server_start.
+//
+// @param ctx the PairingServerCtx instance.
+// @return the port number the server is listening on, or 0 if not.
+__attribute__((weak)) uint16_t pairing_server_get_port(PairingServerCtx* ctx) __INTRODUCED_IN(37);
+
+// Stops the pairing server. If a callback was registered with #pairing_server_start,
+// it will be called upon the server stopping. This call will block until the server stops.
+// The callback in #pairing_server_start, #pairing_server_result_cb, will be called with the
+// pairing result prior to server shutdown.
+//
+// Note: This call does not clean up the context. Use #pairing_server_destroy afterwards to clean
+// up.
+__attribute__((weak)) void pairing_server_stop_listening(PairingServerCtx* ctx) __INTRODUCED_IN(37);
+
 __END_DECLS
