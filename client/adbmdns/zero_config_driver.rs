@@ -146,6 +146,7 @@ impl ZeroConfigDriver {
 
     fn process_packet(&mut self, packet: Packet) {
         self.zero_config.push_records(
+            packet.questions,
             packet.answers,
             packet.additional_records,
             packet.name_servers,
@@ -209,11 +210,8 @@ impl ZeroConfigDriver {
         self.running = true;
         self.create_sockets()?;
 
-        // Check if ZeroConf has some commands to run before we start. This is the time to send
-        // the initial query for tracked services.
-        for command in self.zero_config.on_start() {
-            self.process_command(&command);
-        }
+        self.zero_config.set_time(Instant::now());
+        self.zero_config.on_start();
 
         let mut poller = Poll::new()?;
 
@@ -242,6 +240,7 @@ impl ZeroConfigDriver {
             timeout = self.process_events(&events);
         }
 
+        self.zero_config.set_time(Instant::now());
         for command in self.zero_config.on_stop() {
             self.process_command(&command);
         }

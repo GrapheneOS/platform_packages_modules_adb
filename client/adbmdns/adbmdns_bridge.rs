@@ -170,7 +170,8 @@ fn run() {
     thread::Builder::new()
         .name("libadbmdns_zero_config_driver".to_string())
         .spawn(move || {
-            let zero_config = ZeroConfig::new();
+            let mut zero_config = ZeroConfig::new();
+            zero_config.set_periodic_refresh(true);
             let zero_config_driver = ZeroConfigDriver::new(zero_config, rx);
             zero_config_driver.run_forever();
         })
