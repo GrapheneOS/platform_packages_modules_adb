@@ -1057,6 +1057,15 @@ static bool wait_for_device(const char* service,
 
 static bool adb_root(const char* command) {
     std::string error;
+    std::string state;
+
+    // Query current state (e.g. device, recovery) for subsequent "wait-for"
+    // reference.
+    if (!adb_query(format_host_command("get-state"), &state, &error)) {
+        fprintf(stderr, "get-state error: %s\n", error.c_str());
+        return false;
+    }
+    state = android::base::Trim(state);
 
     TransportId transport_id;
     unique_fd fd(adb_connect(&transport_id, android::base::StringPrintf("%s:", command), &error));
@@ -1104,8 +1113,10 @@ static bool adb_root(const char* command) {
     // Wait for the device to come back.
     // If we were using a specific transport ID, there's nothing we can wait for.
     if (previous_id == 0) {
+        std::string wait_for_command = "wait-for-" + state;
+        D("wait for device to come back (%s)", wait_for_command.c_str());
         adb_set_transport(previous_type, previous_serial, 0);
-        wait_for_device("wait-for-device", 12000ms);
+        wait_for_device(wait_for_command.c_str(), 12000ms);
     }
 
     return true;
