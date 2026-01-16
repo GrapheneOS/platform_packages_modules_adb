@@ -19,7 +19,7 @@ use crate::store::{Services, Store};
 use anyhow::{anyhow, Result};
 use log::debug;
 use simple_dns::rdata::RData::{A, AAAA, PTR, SRV, TXT};
-use simple_dns::{Name, ResourceRecord, QTYPE};
+use simple_dns::{Name, Question, ResourceRecord, QTYPE};
 use std::cmp::PartialEq;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::{Display, Formatter};
@@ -72,6 +72,11 @@ pub(crate) struct ZeroConfig {
     now: Instant,
 
     last_snap_shot: Services,
+
+    // We can query periodically send "refresh" for all the tracked services types.
+    // This is according to RFC 6762 Section 5.2: Continuous Multicast DNS Querying
+    // Only we refresh a bit more often than every hour so this double as a failover.
+    periodic_refresh: bool,
 }
 
 impl Display for FQServiceName {
@@ -103,10 +108,28 @@ const TLS_CONNECT_SERVICE: &str = "_adb-tls-connect._tcp";
 const TLS_PAIRING_SERVICE: &str = "_adb-tls-pairing._tcp";
 const TCP_CONNECT_SERVICE: &str = "_adb._tcp";
 
+const TRACKER_SERVICE_REFRESH_INTERVAL: Duration = Duration::from_secs(120);
 #[derive(Debug, Clone)]
 struct TrackedService {
     service_name: String,
     local: String,
+
+    // Indicate when this service should be queried again
+    next_query_time: Instant,
+}
+
+impl TrackedService {
+    fn new(service_name: String, local: String, now: Instant) -> Self {
+        TrackedService { service_name, local, next_query_time: now }
+    }
+
+    fn refresh(&mut self, now: Instant) {
+        self.next_query_time = now + TRACKER_SERVICE_REFRESH_INTERVAL;
+    }
+
+    fn reset(&mut self, now: Instant) {
+        self.next_query_time = now;
+    }
 }
 
 impl From<TrackedService> for ServiceTypeWithLocal {
@@ -124,6 +147,7 @@ impl ZeroConfig {
             store: Store::new(),
             now: Instant::now(),
             last_snap_shot: HashMap::new(),
+            periodic_refresh: false,
         };
         zero_config.track_service(TLS_CONNECT_SERVICE.to_owned());
         zero_config.track_service(TLS_PAIRING_SERVICE.to_owned());
@@ -131,17 +155,33 @@ impl ZeroConfig {
         zero_config
     }
 
-    pub fn on_start(&mut self) -> Vec<ZeroConfigCommand> {
-        let mut commands = Vec::new();
-        for service in self.tracked_services.keys() {
-            let ServiceTypeWithLocal(service_type_with_local_string) = service;
-            commands.push(ZeroConfigCommand::DnsQuery {
-                query: service_type_with_local_string.clone(),
+    pub fn set_periodic_refresh(&mut self, periodic_refresh: bool) {
+        self.periodic_refresh = periodic_refresh;
+    }
+
+    pub fn on_start(&mut self) {
+        self.tracked_services.values_mut().for_each(|s| s.reset(self.now));
+    }
+
+    fn tick_tracker_services(&mut self) {
+        if !self.periodic_refresh {
+            return;
+        }
+
+        for (service_name, service) in &mut self.tracked_services {
+            if service.next_query_time > self.now {
+                continue;
+            }
+
+            // This service needs a refresh query
+            service.refresh(self.now);
+            debug!("Sending refresh query for {}", service_name.0);
+            self.commands.push(ZeroConfigCommand::DnsQuery {
+                query: service_name.0.clone(),
                 qtype: simple_dns::QTYPE::ANY,
                 qclass: simple_dns::QCLASS::ANY,
             });
         }
-        commands
     }
 
     // See RFC 6762,  10.3. Cache Flush on Topology change. ZeroConfig cache is flushed
@@ -154,8 +194,7 @@ impl ZeroConfig {
     }
 
     pub fn track_service(&mut self, service: String) {
-        let tracked_service =
-            TrackedService { service_name: service.to_owned(), local: "local".to_owned() };
+        let tracked_service = TrackedService::new(service.to_owned(), "local".to_owned(), self.now);
         let service_type_with_local = tracked_service.clone().into();
         self.tracked_services.insert(service_type_with_local, tracked_service);
     }
@@ -166,6 +205,22 @@ impl ZeroConfig {
 
         // Also add to store
         self.store.add(&rr.payload);
+    }
+
+    fn process_queries(&mut self, queries: &Vec<Question>) {
+        // Refresh the tracker if we detect a query on a service we are currently tracking.
+        // This avoids multiple adb on the same LAN to view each other's queries.
+        for query in queries {
+            if query.qtype != QTYPE::ANY {
+                continue;
+            }
+
+            let service_name = ServiceTypeWithLocal(query.qname.to_string());
+            if let Some(service) = self.tracked_services.get_mut(&service_name) {
+                service.refresh(self.now);
+                debug!("Received mDNS query. Refreshing tracked service: {}", service.service_name);
+            }
+        }
     }
 
     fn process_records(&mut self, records: &Vec<ResourceRecord>) {
@@ -301,21 +356,21 @@ impl ZeroConfig {
 
     pub fn push_records(
         &mut self,
+        questions: Vec<Question>,
         answers: Vec<ResourceRecord>,
         additional: Vec<ResourceRecord>,
         nameserver: Vec<ResourceRecord>,
     ) {
+        self.process_queries(&questions);
+
         // Combine all records from the mDNS packet into a single list for processing.
         // This allows finding related records (e.g., PTR, SRV, A/AAAA) that may be in
         // different sections of the packet.
         let all_records: Vec<_> = answers.into_iter().chain(additional).chain(nameserver).collect();
-
-        if all_records.is_empty() {
-            return;
+        if !all_records.is_empty() {
+            debug!("Processing {} records from mDNS packet", all_records.len());
+            self.process_records(&all_records);
         }
-
-        debug!("Processing {} records from mDNS packet", all_records.len());
-        self.process_records(&all_records);
     }
 
     pub fn tick(&mut self) -> (Vec<ZeroConfigCommand>, Duration) {
@@ -369,16 +424,33 @@ impl ZeroConfig {
         // Generate a diff and send commands to create/delete/update
         self.create_diff_commands();
 
+        // Check if the trackers need to send a DnsQuery
+        self.tick_tracker_services();
+
         (take(self.commands.as_mut()), self.calculate_next_attention_duration())
     }
 
     fn calculate_next_attention_duration(&self) -> Duration {
-        // Calculate next attention
+        // Calculate next attention from the RRs
         let mut duration = Duration::from_secs(60);
         if let Some(rr) = self.attention_list.peek() {
             duration = rr.attention_needed_on.duration_since(self.now);
             debug!("Next attention in {}ms for {rr:?}", duration.as_millis());
         }
+
+        if !self.periodic_refresh {
+            return duration;
+        }
+
+        // We may want to refresh based on tracker's next refresh time
+        if let Some(service) = self.tracked_services.values().min_by_key(|t| t.next_query_time) {
+            let next_service_duration = service.next_query_time.duration_since(self.now);
+            if next_service_duration < duration {
+                duration = next_service_duration;
+                debug!("Next tracker refresh in {}ms for {service:?}", duration.as_millis());
+            }
+        }
+
         duration
     }
 
@@ -411,7 +483,9 @@ mod tests {
     use log::debug;
     use simple_dns::rdata::RData::SRV;
     use simple_dns::rdata::{RData, A, TXT};
-    use simple_dns::{Name, ResourceRecord, CLASS};
+    use simple_dns::QTYPE::ANY;
+    use simple_dns::TYPE::PTR;
+    use simple_dns::{Name, Question, ResourceRecord, CLASS, QCLASS, QTYPE};
     use std::collections::HashSet;
     use std::net::{Ipv4Addr, Ipv6Addr};
     use std::time::{Duration, Instant};
@@ -507,7 +581,7 @@ mod tests {
         ];
 
         zero_conf.set_time(Instant::now());
-        zero_conf.push_records(answers, vec![], vec![]);
+        zero_conf.push_records(vec![], answers, vec![], vec![]);
         let (cmds, _) = zero_conf.tick();
         assert_eq!(cmds.len(), 0);
     }
@@ -540,7 +614,7 @@ mod tests {
 
         let mut now = Instant::now();
         zero_conf.set_time(now);
-        zero_conf.push_records(answers, vec![], vec![]);
+        zero_conf.push_records(vec![], answers, vec![], vec![]);
         let (cmds, _) = zero_conf.tick();
         assert_eq!(cmds.len(), 1);
         let create_cmd = cmds.first().unwrap();
@@ -571,7 +645,7 @@ mod tests {
         let mut txt_attributes_update = TxtAttributes::new();
         txt_attributes_update.insert("name".to_owned(), "fab2".to_owned());
         let txt_updates = vec![txt(&fq_service, &txt_attributes_update)];
-        zero_conf.push_records(txt_updates, vec![], vec![]);
+        zero_conf.push_records(vec![], txt_updates, vec![], vec![]);
         let (cmds, _) = zero_conf.tick();
         assert_eq!(cmds.len(), 1);
         let update_cmd = cmds.first().unwrap();
@@ -601,7 +675,7 @@ mod tests {
         zero_conf.set_time(now);
         let new_port = 6666;
         let txt_updates = vec![srv(&fq_service, target, new_port)];
-        zero_conf.push_records(txt_updates, vec![], vec![]);
+        zero_conf.push_records(vec![], txt_updates, vec![], vec![]);
         let (cmds, _) = zero_conf.tick();
         assert_eq!(cmds.len(), 1);
         let cmd = cmds.first().unwrap();
@@ -668,7 +742,7 @@ mod tests {
         ));
 
         zero_conf.set_time(Instant::now());
-        zero_conf.push_records(answers, vec![], vec![]);
+        zero_conf.push_records(vec![], answers, vec![], vec![]);
         let (cmds, _) = zero_conf.tick();
         assert_ne!(cmds.len(), 0);
         let cmd = cmds.first().unwrap();
@@ -706,7 +780,7 @@ mod tests {
         let fq_service = service.fq_name();
         let answers = vec![ptr_with_ttl(&service.service_type_with_local, &fq_service, 0)];
         zero_conf.set_time(Instant::now());
-        zero_conf.push_records(answers, vec![], vec![]);
+        zero_conf.push_records(vec![], answers, vec![], vec![]);
         let (cmds, _) = zero_conf.tick();
         assert_eq!(cmds.len(), 0);
     }
@@ -738,7 +812,7 @@ mod tests {
 
         let now = Instant::now();
         zero_conf.set_time(now);
-        zero_conf.push_records(answers, vec![], vec![]);
+        zero_conf.push_records(vec![], answers, vec![], vec![]);
         let (cmds, _) = zero_conf.tick();
         assert_eq!(cmds.len(), 1);
         let ZeroConfigCommand::CreateService { .. } = cmds.first().unwrap() else {
@@ -748,7 +822,7 @@ mod tests {
         // Now let's expire the service
         let answers = vec![ptr_with_ttl(&service.service_type_with_local, &fq_service, 0)];
         zero_conf.set_time(now + Duration::from_secs(1));
-        zero_conf.push_records(answers, vec![], vec![]);
+        zero_conf.push_records(vec![], answers, vec![], vec![]);
         let (cmds, _) = zero_conf.tick();
         assert_ne!(cmds.len(), 0);
         let cmd = cmds.first().unwrap();
@@ -792,7 +866,7 @@ mod tests {
         // Add the service with a first update
         let epoch = Instant::now();
         zero_conf.set_time(epoch);
-        zero_conf.push_records(answers, vec![], vec![]);
+        zero_conf.push_records(vec![], answers, vec![], vec![]);
         let (cmds, _) = zero_conf.tick();
         assert_eq!(cmds.len(), 1);
 
@@ -1034,7 +1108,7 @@ mod tests {
         // Add the service with a first update
         let epoch = Instant::now();
         zero_conf.set_time(epoch);
-        zero_conf.push_records(answers.clone(), vec![], vec![]);
+        zero_conf.push_records(vec![], answers.clone(), vec![], vec![]);
         let (mut cmds, _) = zero_conf.tick();
         assert_eq!(cmds.len(), 1);
 
@@ -1042,7 +1116,7 @@ mod tests {
         let mut fraction = 0.5;
         let mut now = epoch + Duration::from_secs_f64(fraction * DEFAULT_SHORT_TTL);
         zero_conf.set_time(now);
-        zero_conf.push_records(answers.clone(), vec![], vec![]);
+        zero_conf.push_records(vec![], answers.clone(), vec![], vec![]);
         (cmds, _) = zero_conf.tick();
         assert_eq!(0, cmds.len());
 
@@ -1050,7 +1124,7 @@ mod tests {
         fraction = 1.5;
         now = epoch + Duration::from_secs_f64(fraction * DEFAULT_SHORT_TTL);
         zero_conf.set_time(now);
-        zero_conf.push_records(answers.clone(), vec![], vec![]);
+        zero_conf.push_records(vec![], answers.clone(), vec![], vec![]);
         (cmds, _) = zero_conf.tick();
         assert_eq!(0, cmds.len());
 
@@ -1110,7 +1184,7 @@ mod tests {
         ));
 
         zero_conf.set_time(now);
-        zero_conf.push_records(answers, vec![], vec![]);
+        zero_conf.push_records(vec![], answers, vec![], vec![]);
         let (cmd, _) = zero_conf.tick();
         cmd
     }
@@ -1449,6 +1523,149 @@ mod tests {
             }
             _ => {
                 panic!("Unexpected command {:?}", cmd_delete);
+            }
+        }
+    }
+
+    #[test]
+    fn test_periodic_refresh() {
+        let mut zero_conf = ZeroConfig::new();
+        let mut now = Instant::now();
+        zero_conf.set_time(now);
+        zero_conf.set_periodic_refresh(true);
+
+        // Original tick, we should see 3 requests for ANY
+        let (cmds, _) = zero_conf.tick();
+        assert_eq!(cmds.len(), 3);
+        for cmd in cmds {
+            match cmd {
+                ZeroConfigCommand::DnsQuery { query: _, qtype, qclass: _ } => {
+                    assert_eq!(qtype, ANY)
+                }
+                _ => panic!("Unexpected command {:?}", cmd),
+            }
+        }
+
+        // At 60 nothing happens
+        now += Duration::from_secs(60);
+        zero_conf.set_time(now);
+        let (cmds, _) = zero_conf.tick();
+        assert_eq!(cmds.len(), 0);
+
+        // At 121, we should see another three requests for refresh
+        now += Duration::from_secs(61);
+        zero_conf.set_time(now);
+        let (cmds, _) = zero_conf.tick();
+        assert_eq!(cmds.len(), 3);
+        for cmd in cmds {
+            match cmd {
+                ZeroConfigCommand::DnsQuery { query: _, qtype, qclass: _ } => {
+                    assert_eq!(qtype, ANY)
+                }
+                _ => panic!("Unexpected command {:?}", cmd),
+            }
+        }
+    }
+
+    #[test]
+    fn test_periodic_refresh_cancelled_by_service_query() {
+        let mut zero_conf = ZeroConfig::new();
+        let epoch = Instant::now();
+        zero_conf.set_time(epoch);
+        zero_conf.set_periodic_refresh(true);
+
+        // First tick, we should get a refresh command for all three services
+        let (cmds, _) = zero_conf.tick();
+        assert_eq!(cmds.len(), 3);
+        for cmd in cmds {
+            match cmd {
+                ZeroConfigCommand::DnsQuery { query: _, qtype, qclass: _ } => {
+                    assert_eq!(qtype, ANY)
+                }
+                _ => panic!("Unexpected command {:?}", cmd),
+            }
+        }
+
+        // 60 seconds later, nothing happens
+        zero_conf.set_time(epoch + Duration::from_secs(60));
+        let (cmds, _) = zero_conf.tick();
+        assert_eq!(cmds.len(), 0);
+
+        // We receive a query for tls ANY
+        let service_name = TLS_CONNECT_SERVICE.to_string() + ".local";
+        let q = Question::new(Name::new_unchecked(&service_name), QTYPE::ANY, QCLASS::ANY, true);
+        zero_conf.push_records(vec![q], vec![], vec![], vec![]);
+
+        // 125 seconds after start, we see only two refresh request and not for TLS because one was seen
+        // at 60
+        zero_conf.set_time(epoch + Duration::from_secs(125));
+        let (cmds, _) = zero_conf.tick();
+        assert_eq!(cmds.len(), 2);
+        for cmd in cmds {
+            match cmd {
+                ZeroConfigCommand::DnsQuery { query, qtype, qclass: _ } => {
+                    assert_eq!(qtype, ANY);
+                    assert_ne!(query, service_name);
+                }
+                _ => panic!("Unexpected command {:?}", cmd),
+            }
+        }
+
+        // At 185, refresh for tcp and pair were sent at 60 but now we should see TLS
+        zero_conf.set_time(epoch + Duration::from_secs(185));
+        let (cmds, _) = zero_conf.tick();
+        assert_eq!(cmds.len(), 1);
+        for cmd in cmds {
+            match cmd {
+                ZeroConfigCommand::DnsQuery { query, qtype, qclass: _ } => {
+                    assert_eq!(qtype, ANY);
+                    assert_eq!(query, service_name);
+                }
+                _ => panic!("Unexpected command {:?}", cmd),
+            }
+        }
+    }
+
+    #[test]
+    fn test_periodic_refresh_not_cancelled_by_rr_query() {
+        let mut zero_conf = ZeroConfig::new();
+        let epoch = Instant::now();
+        zero_conf.set_time(epoch);
+        zero_conf.set_periodic_refresh(true);
+
+        // First tick. We should get a refresh request for all three services
+        let (cmds, _) = zero_conf.tick();
+        assert_eq!(cmds.len(), 3);
+        for cmd in cmds {
+            match cmd {
+                ZeroConfigCommand::DnsQuery { query: _, qtype, qclass: _ } => {
+                    assert_eq!(qtype, ANY)
+                }
+                _ => panic!("Unexpected command {:?}", cmd),
+            }
+        }
+
+        // 60 seconds later, nothing should happen
+        zero_conf.set_time(epoch + Duration::from_secs(60));
+        let (cmds, _) = zero_conf.tick();
+        assert_eq!(cmds.len(), 0);
+
+        // Push a query but that is for a SPECIFIC service (not ANY)
+        let service_name = TLS_CONNECT_SERVICE.to_string() + ".local";
+        let q =
+            Question::new(Name::new_unchecked(&service_name), QTYPE::TYPE(PTR), QCLASS::ANY, true);
+        zero_conf.push_records(vec![q], vec![], vec![], vec![]);
+
+        // Despite the specific PTR request, we should have a refresh request for all three services
+        zero_conf.set_time(epoch + Duration::from_secs(125));
+        let (cmds, _) = zero_conf.tick();
+        assert_eq!(cmds.len(), 3);
+        for cmd in cmds {
+            match cmd {
+                ZeroConfigCommand::DnsQuery { query: _, qtype, qclass: _ } => {
+                    assert_eq!(qtype, ANY)
+                }
+                _ => panic!("Unexpected command {:?}", cmd),
             }
         }
     }
