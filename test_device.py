@@ -1381,7 +1381,7 @@ class DeviceOfflineTest(DeviceTest):
     def _get_device_state(self, serialno):
         output = subprocess.check_output(self.device.adb_cmd + ['devices'])
         for line in output.split('\n'):
-            m = re.match('(\S+)\s+(\S+)', line)
+            m = re.match(r'(\S+)\s+(\S+)', line)
             if m and m.group(1) == serialno:
                 return m.group(2)
         return None
