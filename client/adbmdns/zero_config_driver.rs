@@ -126,14 +126,19 @@ impl ZeroConfigDriver {
     }
 
     fn create_sockets(&mut self) -> Result<()> {
-        let interfaces: Vec<Interface> = if_addrs::get_if_addrs()
-            .unwrap_or_default()
+        let all_interfaces: Vec<Interface> = if_addrs::get_if_addrs().unwrap_or_default();
+        debug!("Create socket found interfaces:");
+        for intf in &all_interfaces {
+            debug!("{intf:?}");
+        }
+
+        let ifs: Vec<Interface> = all_interfaces
             .into_iter()
             .filter(|i| !i.is_loopback() && !i.is_link_local() && i.is_oper_up())
             .collect();
 
         self.io.clear();
-        for interface in interfaces {
+        for interface in ifs {
             let Ok(socket) = ZeroConfigDriver::create_socket(&interface) else {
                 warn!("Unable to create socket for interface {interface:?}");
                 continue;
