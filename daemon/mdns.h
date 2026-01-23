@@ -28,4 +28,7 @@ struct AdbdAuthContext;
 // Pass the adbd_auth context so mdns operation can be requested from framework
 void adbd_mdns_init(AdbdAuthContext* ctx);
 
+// Callback for adbd_auth when the framework connects
+void on_framework_connected();
+
 #endif  // _DAEMON_MDNS_H_
