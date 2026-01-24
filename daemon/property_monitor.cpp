@@ -59,7 +59,7 @@ static std::optional<std::string> ReadProperty(PropertyMonitorData* data) {
             },
             &result);
 
-    if (result.serial <= data->serial) {
+    if (result.serial == data->serial) {
         return {};
     }
 
@@ -71,7 +71,7 @@ void PropertyMonitor::Add(std::string property, std::function<PropertyMonitorCal
     PropertyMonitorData data = {
             .callback = std::move(callback),
             .prop_info = nullptr,
-            .serial = 0,
+            .serial = PropertyMonitorData::kImpossibleSerial,
     };
 
     if (FindProperty(property, &data)) {

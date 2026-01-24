@@ -97,6 +97,33 @@ TEST(PropertyMonitorTest, initial) {
     ASSERT_EQ("", output.changes[never_set][0]);
 }
 
+// test case for b/478026377
+TEST(PropertyMonitorTest, initial_empty) {
+    PropertyMonitor pm;
+    PropertyChanges output;
+
+    auto exit_fn = RegisterExitCallback(&pm);
+
+    std::string foo = ManglePropertyName("debug.property_monitor_test.initial");
+    std::string never_set = ManglePropertyName("debug.property_monitor_test.never_set");
+    RegisterCallback(&pm, &output, foo);
+    android::base::SetProperty(foo, "");
+
+    RegisterCallback(&pm, &output, never_set);
+
+    auto thread = SpawnThread(&pm);
+
+    exit_fn();
+    thread.join();
+
+    std::lock_guard<std::mutex> lock(output.mutex);
+    ASSERT_EQ(2UL, output.changes.size());
+    ASSERT_EQ(2UL, output.changes[foo].size());
+    ASSERT_EQ("", output.changes[foo][0]);
+    ASSERT_EQ("", output.changes[foo][1]);
+    ASSERT_EQ("", output.changes[never_set][0]);
+}
+
 TEST(PropertyMonitorTest, change) {
     PropertyMonitor pm;
     PropertyChanges output;
@@ -119,7 +146,7 @@ TEST(PropertyMonitorTest, change) {
         ASSERT_EQ("foo", output.changes[foo][1]);
     }
 
-    android::base::SetProperty(foo, "bar");
+    android::base::SetProperty(foo, "oh");
     std::this_thread::sleep_for(100ms);
 
     {
@@ -128,7 +155,7 @@ TEST(PropertyMonitorTest, change) {
         ASSERT_EQ(3UL, output.changes[foo].size());
         ASSERT_EQ("", output.changes[foo][0]);
         ASSERT_EQ("foo", output.changes[foo][1]);
-        ASSERT_EQ("bar", output.changes[foo][2]);
+        ASSERT_EQ("oh", output.changes[foo][2]);
     }
 
     exit_fn();

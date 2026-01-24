@@ -30,7 +30,10 @@ using PropertyMonitorCallback = bool(std::string value);
 struct PropertyMonitorData {
     std::function<PropertyMonitorCallback> callback;
     const prop_info* prop_info;
-    uint32_t serial;
+    int64_t serial;
+    // To catch any change, we must initialize the first serial to an "impossible"
+    // value. Because serial is uint32_t, -1 is not a serial that can be generated.
+    static const int64_t kImpossibleSerial = -1;
 };
 
 // This class is thread-unsafe: all operations must be guarded by mutexes if they can occur on
