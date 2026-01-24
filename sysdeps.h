@@ -43,6 +43,7 @@
 #include <android-base/logging.h>
 #include <android-base/macros.h>
 #include <android-base/off64_t.h>
+#include <android-base/properties.h>
 #include <android-base/unique_fd.h>
 #include <android-base/utf8.h>
 #if __has_include(<print>)
@@ -605,8 +606,23 @@ inline int network_inaddr_any_server(int port, int type, std::string* error) {
     return _fd_set_error_str(socket_inaddr_any_server(port, type), error);
 }
 
+static int get_adb_connect_timeout() {
+    // Problematic pull services encountered (e.g.: chrome://inspect/#devices) tend to default
+    // to pulling every 1s. Defaulting to 500ms gives enough time to fdevent to process packets
+    // between the time these services hit us.
+    return android::base::GetIntProperty("persist.adb.local_connect_timeout_ms", 500);
+}
+
 inline int network_local_client(const char* name, int namespace_id, int type, std::string* error) {
-    return _fd_set_error_str(socket_local_client(name, namespace_id, type), error);
+    int timeout = get_adb_connect_timeout();
+    // As a failsafe for the new socket_local_client_timeout, we revert to the legacy version if
+    // no timeout is requested.
+    if (timeout == -1) {
+        return _fd_set_error_str(socket_local_client(name, namespace_id, type), error);
+    } else {
+        return _fd_set_error_str(socket_local_client_timeout(name, namespace_id, type, timeout),
+                                 error);
+    }
 }
 
 inline int network_local_server(const char* name, int namespace_id, int type, std::string* error) {
