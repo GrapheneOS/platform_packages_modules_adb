@@ -168,16 +168,16 @@ impl ZeroConfig {
             return;
         }
 
-        for (service_name, service) in &mut self.tracked_services {
+        for (ServiceTypeWithLocal(service_name), service) in &mut self.tracked_services {
             if service.next_query_time > self.now {
                 continue;
             }
 
             // This service needs a refresh query
             service.refresh(self.now);
-            debug!("Sending refresh query for {}", service_name.0);
+            debug!("Sending refresh query for {}", service_name);
             self.commands.push(ZeroConfigCommand::DnsQuery {
-                query: service_name.0.clone(),
+                query: service_name.clone(),
                 qtype: simple_dns::QTYPE::ANY,
                 qclass: simple_dns::QCLASS::ANY,
             });
