@@ -376,7 +376,7 @@ impl ZeroConfig {
         // Calculate next attention
         let mut duration = Duration::from_secs(60);
         if let Some(rr) = self.attention_list.peek() {
-            duration = rr.attention_needed_on.duration_since(self.now);
+            duration = rr.attention_needed_on.saturating_duration_since(self.now);
             debug!("Next attention in {}ms for {rr:?}", duration.as_millis());
         }
         duration
@@ -799,7 +799,7 @@ mod tests {
         // Advance virtual time to 79% of DEFAULT_SHORT_TTLs records). This should NOT expire anything or trigger probes
         let mut fraction = RRLifecycle::Created.next_ttl_fraction() - 0.01;
         let mut now = epoch + Duration::from_secs_f64(fraction * DEFAULT_SHORT_TTL);
-        debug!("Elapsed time: {:?}", epoch.duration_since(now));
+        debug!("Elapsed time: {:?}", epoch.saturating_duration_since(now));
         zero_conf.set_time(now);
         let (mut cmds, _) = zero_conf.tick();
         assert_eq!(cmds.len(), 0);
