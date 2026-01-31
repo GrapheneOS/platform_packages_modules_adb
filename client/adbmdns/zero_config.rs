@@ -168,16 +168,16 @@ impl ZeroConfig {
             return;
         }
 
-        for (service_name, service) in &mut self.tracked_services {
+        for (ServiceTypeWithLocal(service_name), service) in &mut self.tracked_services {
             if service.next_query_time > self.now {
                 continue;
             }
 
             // This service needs a refresh query
             service.refresh(self.now);
-            debug!("Sending refresh query for {}", service_name.0);
+            debug!("Sending refresh query for {}", service_name);
             self.commands.push(ZeroConfigCommand::DnsQuery {
-                query: service_name.0.clone(),
+                query: service_name.clone(),
                 qtype: simple_dns::QTYPE::ANY,
                 qclass: simple_dns::QCLASS::ANY,
             });
@@ -434,7 +434,7 @@ impl ZeroConfig {
         // Calculate next attention from the RRs
         let mut duration = Duration::from_secs(60);
         if let Some(rr) = self.attention_list.peek() {
-            duration = rr.attention_needed_on.duration_since(self.now);
+            duration = rr.attention_needed_on.saturating_duration_since(self.now);
             debug!("Next attention in {}ms for {rr:?}", duration.as_millis());
         }
 
@@ -873,7 +873,7 @@ mod tests {
         // Advance virtual time to 79% of DEFAULT_SHORT_TTLs records). This should NOT expire anything or trigger probes
         let mut fraction = RRLifecycle::Created.next_ttl_fraction() - 0.01;
         let mut now = epoch + Duration::from_secs_f64(fraction * DEFAULT_SHORT_TTL);
-        debug!("Elapsed time: {:?}", epoch.duration_since(now));
+        debug!("Elapsed time: {:?}", epoch.saturating_duration_since(now));
         zero_conf.set_time(now);
         let (mut cmds, _) = zero_conf.tick();
         assert_eq!(cmds.len(), 0);
