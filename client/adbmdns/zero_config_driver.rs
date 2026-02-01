@@ -49,18 +49,27 @@ pub struct ZeroConfigDriver {
     command_channel: ZeroConfigDriverChannelReceiver,
 
     running: bool,
+
+    poll: Poll,
 }
 
 const MDNS_PORT: u16 = 5353;
+const COMMAND_CHANNEL_TOKEN: mio::Token = mio::Token(0);
 const MDNS_ADDRESS_V4: Ipv4Addr = Ipv4Addr::new(224, 0, 0, 251);
 const MDNS_ADDRESS_V6: Ipv6Addr = Ipv6Addr::new(0xff02, 0, 0, 0, 0, 0, 0, 0xfb);
 
 impl ZeroConfigDriver {
     pub fn new(
         zero_config: ZeroConfig,
-        command_channel: ZeroConfigDriverChannelReceiver,
-    ) -> ZeroConfigDriver {
-        ZeroConfigDriver { zero_config, io: Vec::new(), command_channel, running: true }
+        mut command_channel: ZeroConfigDriverChannelReceiver,
+    ) -> Result<ZeroConfigDriver> {
+        let poll = Poll::new()?;
+        poll.registry().register(
+            &mut command_channel,
+            COMMAND_CHANNEL_TOKEN,
+            mio::Interest::READABLE,
+        )?;
+        Ok(ZeroConfigDriver { zero_config, io: Vec::new(), command_channel, running: true, poll })
     }
 
     fn send_query(&self, query: &[u8]) -> Result<()> {
@@ -191,7 +200,7 @@ impl ZeroConfigDriver {
 
             // This is the interrupt socket. We have command waiting to be processed in the
             // command_channel.
-            if event.token() == mio::Token(self.io.len()) {
+            if event.token() == COMMAND_CHANNEL_TOKEN {
                 let commands = self.command_channel.recv();
                 for command in &commands {
                     self.process_command(command);
@@ -199,7 +208,7 @@ impl ZeroConfigDriver {
                 continue;
             }
 
-            self.handle_socket_readable(event.token().0);
+            self.handle_socket_readable(event.token().0 - 1);
         }
 
         let (commands, next_attention) = self.zero_config.tick();
@@ -218,30 +227,21 @@ impl ZeroConfigDriver {
         self.zero_config.set_time(Instant::now());
         self.zero_config.on_start();
 
-        let mut poller = Poll::new()?;
-
         // Register all network interfaces
         for (index, interface) in self.io.iter_mut().enumerate() {
-            poller.registry().register(
+            self.poll.registry().register(
                 &mut interface.socket,
-                mio::Token(index),
+                mio::Token(index + 1),
                 mio::Interest::READABLE,
             )?;
         }
-
-        // Register the interrupt socket
-        poller.registry().register(
-            &mut self.command_channel,
-            mio::Token(self.io.len()),
-            mio::Interest::READABLE,
-        )?;
 
         let mut events = Events::with_capacity(self.io.len() + 1);
         let mut timeout: Duration = Duration::from_millis(0);
         while self.running {
             timeout = timeout.clamp(Duration::from_millis(300), Duration::from_secs(120));
             debug!("ZeroConfigDriver polling with timeout={}ms", timeout.as_millis());
-            poller.poll(&mut events, Some(timeout))?;
+            self.poll.poll(&mut events, Some(timeout))?;
             timeout = self.process_events(&events);
         }
 
