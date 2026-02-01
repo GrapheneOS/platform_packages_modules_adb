@@ -16,7 +16,7 @@
 
 use crate::rr::TxtAttributes;
 use crate::zero_config::ZeroConfigCommand::{
-    CreateService, DeleteService, DnsQuery, Restart, UpdateService,
+    CreateService, DeleteService, DnsQueries, Restart, UpdateService,
 };
 use crate::zero_config::{ZeroConfig, ZeroConfigCommand};
 use crate::zero_config_driver_channel::ZeroConfigDriverChannelReceiver;
@@ -269,23 +269,25 @@ impl ZeroConfigDriver {
     fn process_command(&mut self, command: &ZeroConfigCommand) {
         log::debug!("Processing command {command:?}");
         match command {
-            DnsQuery { query, qtype, qclass } => {
+            DnsQueries { questions } => {
                 let mut packet = Packet::new_query(0);
-                let Ok(name) = Name::new(query.as_str()) else {
-                    warn!("Query {query} cannot be made into a name");
-                    return;
-                };
+                for question in questions {
+                    let Ok(name) = Name::new(question.name.as_str()) else {
+                        warn!("Query {question:?} cannot be made into a name");
+                        return;
+                    };
 
-                let question = Question::new(name, *qtype, *qclass, false);
-                packet.questions.push(question.clone());
+                    let question = Question::new(name, question.qtype, question.qclass, false);
+                    packet.questions.push(question.clone());
+                }
                 let Ok(query) = packet.build_bytes_vec() else {
-                    warn!("Unable to build query for {query}, {qtype:?}, {qclass:?}");
+                    warn!("Unable to build query for {questions:?}");
                     return;
                 };
 
                 let res = self.send_query(&query);
                 if res.is_err() {
-                    warn!("Error sending query {question:?} {res:?}");
+                    warn!("Error sending query {questions:?} {res:?}");
                 }
             }
             CreateService { instance_name, service_type, ipv4s, ipv6s, port, txt } => send_update(

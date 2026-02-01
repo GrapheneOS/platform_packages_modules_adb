@@ -20,21 +20,25 @@ use anyhow::{anyhow, Result};
 use log::debug;
 use simple_dns::rdata::RData::{A, AAAA, PTR, SRV, TXT};
 use simple_dns::{Name, Question, ResourceRecord, QTYPE};
-use std::cmp::PartialEq;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::{Display, Formatter};
 use std::mem::take;
 use std::net::{Ipv4Addr, Ipv6Addr};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
-use ZeroConfigCommand::DnsQuery;
+use ZeroConfigCommand::DnsQueries;
+
+#[derive(Debug, PartialEq, Clone)]
+pub(crate) struct DnsQuery {
+    pub(crate) name: String,
+    pub(crate) qtype: simple_dns::QTYPE,
+    pub(crate) qclass: simple_dns::QCLASS,
+}
 
 #[derive(Debug, PartialEq, Clone)]
 pub(crate) enum ZeroConfigCommand {
-    DnsQuery {
-        query: String,
-        qtype: simple_dns::QTYPE,
-        qclass: simple_dns::QCLASS,
+    DnsQueries {
+        questions: Vec<DnsQuery>,
     },
     CreateService {
         instance_name: String,
@@ -77,6 +81,10 @@ pub(crate) struct ZeroConfig {
     // This is according to RFC 6762 Section 5.2: Continuous Multicast DNS Querying
     // Only we refresh a bit more often than every hour so this double as a failover.
     periodic_refresh: bool,
+
+    // To minimize mDNS traffic, we store question_requests here and generate a single
+    // command at the end of tick
+    question_requests: Vec<DnsQuery>,
 }
 
 impl Display for FQServiceName {
@@ -148,6 +156,7 @@ impl ZeroConfig {
             now: Instant::now(),
             last_snap_shot: HashMap::new(),
             periodic_refresh: false,
+            question_requests: Vec::new(),
         };
         zero_config.track_service(TLS_CONNECT_SERVICE.to_owned());
         zero_config.track_service(TLS_PAIRING_SERVICE.to_owned());
@@ -176,8 +185,8 @@ impl ZeroConfig {
             // This service needs a refresh query
             service.refresh(self.now);
             debug!("Sending refresh query for {}", service_name);
-            self.commands.push(ZeroConfigCommand::DnsQuery {
-                query: service_name.clone(),
+            self.question_requests.push(DnsQuery {
+                name: service_name.clone(),
                 qtype: simple_dns::QTYPE::ANY,
                 qclass: simple_dns::QCLASS::ANY,
             });
@@ -373,6 +382,14 @@ impl ZeroConfig {
         }
     }
 
+    fn convert_dns_query_to_command(&mut self) {
+        if self.question_requests.is_empty() {
+            return;
+        }
+
+        self.commands.push(DnsQueries { questions: take(&mut self.question_requests) });
+    }
+
     pub fn tick(&mut self) -> (Vec<ZeroConfigCommand>, Duration) {
         // Build a list of all the rr that need attention or expiration
         while let Some(attention_element) = self.attention_list.peek() {
@@ -427,6 +444,8 @@ impl ZeroConfig {
         // Check if the trackers need to send a DnsQuery
         self.tick_tracker_services();
 
+        self.convert_dns_query_to_command();
+
         (take(self.commands.as_mut()), self.calculate_next_attention_duration())
     }
 
@@ -471,7 +490,11 @@ impl ZeroConfig {
             RRPayload::PTR { .. } => QTYPE::TYPE(simple_dns::TYPE::PTR),
         };
 
-        self.commands.push(DnsQuery { query, qtype, qclass: simple_dns::QCLASS::ANY });
+        self.question_requests.push(DnsQuery {
+            name: query,
+            qtype,
+            qclass: simple_dns::QCLASS::ANY,
+        });
     }
 }
 
@@ -883,10 +906,10 @@ mod tests {
         now = epoch + Duration::from_secs_f64(fraction * DEFAULT_SHORT_TTL);
         zero_conf.set_time(now);
         (cmds, _) = zero_conf.tick();
-        assert_eq!(cmds.len(), 4);
+        assert_eq!(cmds.len(), 1);
         for cmd in &cmds {
             match cmd {
-                ZeroConfigCommand::DnsQuery { .. } => {}
+                ZeroConfigCommand::DnsQueries { .. } => {}
                 unexpected => {
                     panic!("Unexpected command {unexpected:?}");
                 }
@@ -906,10 +929,10 @@ mod tests {
         now = epoch + Duration::from_secs_f64(fraction * DEFAULT_SHORT_TTL);
         zero_conf.set_time(now);
         (cmds, _) = zero_conf.tick();
-        assert_eq!(cmds.len(), 4);
+        assert_eq!(cmds.len(), 1);
         for cmd in &cmds {
             match cmd {
-                ZeroConfigCommand::DnsQuery { .. } => {}
+                ZeroConfigCommand::DnsQueries { .. } => {}
                 unexpected => {
                     panic!("Unexpected command {unexpected:?}");
                 }
@@ -929,10 +952,10 @@ mod tests {
         now = epoch + Duration::from_secs_f64(fraction * DEFAULT_SHORT_TTL);
         zero_conf.set_time(now);
         (cmds, _) = zero_conf.tick();
-        assert_eq!(cmds.len(), 4);
+        assert_eq!(cmds.len(), 1);
         for cmd in &cmds {
             match cmd {
-                ZeroConfigCommand::DnsQuery { .. } => {}
+                ZeroConfigCommand::DnsQueries { .. } => {}
                 unexpected => {
                     panic!("Unexpected command {unexpected:?}");
                 }
@@ -980,7 +1003,7 @@ mod tests {
         assert_eq!(cmds.len(), 1);
         for cmd in &cmds {
             match cmd {
-                ZeroConfigCommand::DnsQuery { .. } => {}
+                ZeroConfigCommand::DnsQueries { .. } => {}
                 unexpected => {
                     panic!("Unexpected command {unexpected:?}");
                 }
@@ -1002,7 +1025,7 @@ mod tests {
         assert_eq!(cmds.len(), 1);
         for cmd in &cmds {
             match cmd {
-                ZeroConfigCommand::DnsQuery { .. } => {}
+                ZeroConfigCommand::DnsQueries { .. } => {}
                 unexpected => {
                     panic!("Unexpected command {unexpected:?}");
                 }
@@ -1025,7 +1048,7 @@ mod tests {
         assert_eq!(cmds.len(), 1);
         for cmd in &cmds {
             match cmd {
-                ZeroConfigCommand::DnsQuery { .. } => {}
+                ZeroConfigCommand::DnsQueries { .. } => {}
                 unexpected => {
                     panic!("Unexpected command {unexpected:?}");
                 }
@@ -1048,7 +1071,7 @@ mod tests {
         assert_eq!(cmds.len(), 1);
         for cmd in &cmds {
             match cmd {
-                ZeroConfigCommand::DnsQuery { .. } => {}
+                ZeroConfigCommand::DnsQueries { .. } => {}
                 unexpected => {
                     panic!("Unexpected command {unexpected:?}");
                 }
@@ -1296,7 +1319,7 @@ mod tests {
         zero_conf.set_time(now);
         (cmds, _) = zero_conf.tick();
 
-        assert_eq!(6, cmds.len());
+        assert_eq!(2, cmds.len());
         let delete_cmd = cmds.first().unwrap();
         match delete_cmd {
             ZeroConfigCommand::DeleteService { instance_name, service_type } => {
@@ -1304,7 +1327,7 @@ mod tests {
                 assert_eq!(service.service_type, *service_type);
                 assert_eq!(0, zero_conf.commands.len())
             }
-            ZeroConfigCommand::DnsQuery { .. } => {}
+            ZeroConfigCommand::DnsQueries { .. } => {}
             _ => {
                 panic!("Unexpected command {:?}", delete_cmd);
             }
@@ -1536,11 +1559,14 @@ mod tests {
 
         // Original tick, we should see 3 requests for ANY
         let (cmds, _) = zero_conf.tick();
-        assert_eq!(cmds.len(), 3);
+        assert_eq!(cmds.len(), 1);
         for cmd in cmds {
             match cmd {
-                ZeroConfigCommand::DnsQuery { query: _, qtype, qclass: _ } => {
-                    assert_eq!(qtype, ANY)
+                ZeroConfigCommand::DnsQueries { questions } => {
+                    assert_eq!(questions.len(), 3);
+                    for query in questions {
+                        assert_eq!(query.qtype, ANY)
+                    }
                 }
                 _ => panic!("Unexpected command {:?}", cmd),
             }
@@ -1556,11 +1582,14 @@ mod tests {
         now += Duration::from_secs(61);
         zero_conf.set_time(now);
         let (cmds, _) = zero_conf.tick();
-        assert_eq!(cmds.len(), 3);
+        assert_eq!(cmds.len(), 1);
         for cmd in cmds {
             match cmd {
-                ZeroConfigCommand::DnsQuery { query: _, qtype, qclass: _ } => {
-                    assert_eq!(qtype, ANY)
+                ZeroConfigCommand::DnsQueries { questions } => {
+                    assert_eq!(questions.len(), 3);
+                    for query in questions {
+                        assert_eq!(query.qtype, ANY);
+                    }
                 }
                 _ => panic!("Unexpected command {:?}", cmd),
             }
@@ -1576,11 +1605,14 @@ mod tests {
 
         // First tick, we should get a refresh command for all three services
         let (cmds, _) = zero_conf.tick();
-        assert_eq!(cmds.len(), 3);
+        assert_eq!(cmds.len(), 1);
         for cmd in cmds {
             match cmd {
-                ZeroConfigCommand::DnsQuery { query: _, qtype, qclass: _ } => {
-                    assert_eq!(qtype, ANY)
+                ZeroConfigCommand::DnsQueries { questions } => {
+                    assert_eq!(questions.len(), 3);
+                    for query in questions {
+                        assert_eq!(query.qtype, ANY);
+                    }
                 }
                 _ => panic!("Unexpected command {:?}", cmd),
             }
@@ -1600,12 +1632,15 @@ mod tests {
         // at 60
         zero_conf.set_time(epoch + Duration::from_secs(125));
         let (cmds, _) = zero_conf.tick();
-        assert_eq!(cmds.len(), 2);
+        assert_eq!(cmds.len(), 1);
         for cmd in cmds {
             match cmd {
-                ZeroConfigCommand::DnsQuery { query, qtype, qclass: _ } => {
-                    assert_eq!(qtype, ANY);
-                    assert_ne!(query, service_name);
+                ZeroConfigCommand::DnsQueries { questions } => {
+                    assert_eq!(questions.len(), 2);
+                    for query in questions {
+                        assert_eq!(query.qtype, ANY);
+                        assert_ne!(query.name, service_name);
+                    }
                 }
                 _ => panic!("Unexpected command {:?}", cmd),
             }
@@ -1617,9 +1652,12 @@ mod tests {
         assert_eq!(cmds.len(), 1);
         for cmd in cmds {
             match cmd {
-                ZeroConfigCommand::DnsQuery { query, qtype, qclass: _ } => {
-                    assert_eq!(qtype, ANY);
-                    assert_eq!(query, service_name);
+                ZeroConfigCommand::DnsQueries { questions } => {
+                    assert_eq!(questions.len(), 1);
+                    for query in questions {
+                        assert_eq!(query.qtype, ANY);
+                        assert_eq!(query.name, service_name);
+                    }
                 }
                 _ => panic!("Unexpected command {:?}", cmd),
             }
@@ -1635,11 +1673,14 @@ mod tests {
 
         // First tick. We should get a refresh request for all three services
         let (cmds, _) = zero_conf.tick();
-        assert_eq!(cmds.len(), 3);
+        assert_eq!(cmds.len(), 1);
         for cmd in cmds {
             match cmd {
-                ZeroConfigCommand::DnsQuery { query: _, qtype, qclass: _ } => {
-                    assert_eq!(qtype, ANY)
+                ZeroConfigCommand::DnsQueries { questions } => {
+                    assert_eq!(questions.len(), 3);
+                    for query in questions {
+                        assert_eq!(query.qtype, ANY);
+                    }
                 }
                 _ => panic!("Unexpected command {:?}", cmd),
             }
@@ -1659,11 +1700,14 @@ mod tests {
         // Despite the specific PTR request, we should have a refresh request for all three services
         zero_conf.set_time(epoch + Duration::from_secs(125));
         let (cmds, _) = zero_conf.tick();
-        assert_eq!(cmds.len(), 3);
+        assert_eq!(cmds.len(), 1);
         for cmd in cmds {
             match cmd {
-                ZeroConfigCommand::DnsQuery { query: _, qtype, qclass: _ } => {
-                    assert_eq!(qtype, ANY)
+                ZeroConfigCommand::DnsQueries { questions } => {
+                    assert_eq!(questions.len(), 3);
+                    for query in questions {
+                        assert_eq!(query.qtype, ANY);
+                    }
                 }
                 _ => panic!("Unexpected command {:?}", cmd),
             }
