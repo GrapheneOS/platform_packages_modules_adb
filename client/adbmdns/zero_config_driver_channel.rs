@@ -134,6 +134,7 @@ pub fn new() -> Result<(ZeroConfigDriverChannelSender, ZeroConfigDriverChannelRe
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::zero_config::DnsQuery;
     use std::thread;
     use std::time::Duration;
 
@@ -161,10 +162,12 @@ mod tests {
         let (sender, mut receiver) = new().unwrap();
         let cmds = vec![
             ZeroConfigCommand::Restart {},
-            ZeroConfigCommand::DnsQuery {
-                query: "test.local".to_string(),
-                qtype: simple_dns::QTYPE::ANY,
-                qclass: simple_dns::QCLASS::ANY,
+            ZeroConfigCommand::DnsQueries {
+                questions: vec![DnsQuery {
+                    name: "test.local".to_string(),
+                    qtype: simple_dns::QTYPE::ANY,
+                    qclass: simple_dns::QCLASS::ANY,
+                }],
             },
         ];
 
