@@ -346,9 +346,9 @@ bool socket_spec_connect(unique_fd* fd, std::string_view address, int* port,
                                            SOCK_STREAM, error));
 
             if (fd->get() < 0) {
-                *error =
-                        android::base::StringPrintf("could not connect to %s address '%s'",
-                                                    it.first.c_str(), std::string(address).c_str());
+                *error = android::base::StringPrintf("could not connect to %s address '%s' (%s)",
+                                                     it.first.c_str(), std::string(address).c_str(),
+                                                     error->c_str());
                 return false;
             }
 
