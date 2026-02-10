@@ -103,8 +103,8 @@ impl Store {
                 }
             }
 
-            // If no A or AAAA, don't add it, it is not reachable.
-            if details.ipv4s.is_empty() || details.ipv6s.is_empty() {
+            // If no A and AAAA, don't add it, the service is not reachable.
+            if details.ipv4s.is_empty() && details.ipv6s.is_empty() {
                 continue;
             }
 
@@ -222,5 +222,82 @@ mod tests {
         assert_eq!(0, store.srvs.len());
         assert_eq!(0, store.ptrs.len());
         assert_eq!(0, store.txts.len());
+    }
+
+    #[test]
+    fn test_snapshot_no_ipv4() {
+        let mut store = super::Store::new();
+        let fq_name =
+            FQServiceName::new("Instance".to_owned(), "Service".to_owned(), "Local".to_owned());
+        let host = "host.local".to_owned();
+
+        store.add(&RRPayload::PTR {
+            name: "_service._tcp.local".to_owned(),
+            pointer: fq_name.clone(),
+        });
+        store.add(&RRPayload::SRV { name: fq_name.clone(), target: host.clone(), port: 1234 });
+        store.add(&RRPayload::AAAA { name: host.clone(), addr: Ipv6Addr::LOCALHOST });
+
+        let services = store.snapshot();
+        assert_eq!(1, services.len());
+        let details = services.get(&fq_name).unwrap();
+        assert!(details.ipv4s.is_empty());
+        assert_eq!(1, details.ipv6s.len());
+    }
+
+    #[test]
+    fn test_snapshot_no_ipv6() {
+        let mut store = super::Store::new();
+        let fq_name =
+            FQServiceName::new("Instance".to_owned(), "Service".to_owned(), "Local".to_owned());
+        let host = "host.local".to_owned();
+
+        store.add(&RRPayload::PTR {
+            name: "_service._tcp.local".to_owned(),
+            pointer: fq_name.clone(),
+        });
+        store.add(&RRPayload::SRV { name: fq_name.clone(), target: host.clone(), port: 1234 });
+        store.add(&RRPayload::A { name: host.clone(), addr: Ipv4Addr::LOCALHOST });
+
+        let services = store.snapshot();
+        assert_eq!(1, services.len());
+        let details = services.get(&fq_name).unwrap();
+        assert_eq!(1, details.ipv4s.len());
+        assert!(details.ipv6s.is_empty());
+    }
+
+    #[test]
+    fn test_snapshot_no_ipv6_no_ipv4() {
+        let mut store = super::Store::new();
+        let fq_name =
+            FQServiceName::new("Instance".to_owned(), "Service".to_owned(), "Local".to_owned());
+        let host = "host.local".to_owned();
+
+        store.add(&RRPayload::PTR {
+            name: "_service._tcp.local".to_owned(),
+            pointer: fq_name.clone(),
+        });
+        store.add(&RRPayload::SRV { name: fq_name.clone(), target: host.clone(), port: 1234 });
+
+        let services = store.snapshot();
+        assert_eq!(0, services.len());
+
+        store.add(&RRPayload::A { name: host.clone(), addr: Ipv4Addr::LOCALHOST });
+        let services = store.snapshot();
+        assert_eq!(1, services.len());
+        let details = services.get(&fq_name).unwrap();
+        assert_eq!(1, details.ipv4s.len());
+        assert!(details.ipv6s.is_empty());
+
+        store.remove(&RRPayload::A { name: host.clone(), addr: Ipv4Addr::LOCALHOST });
+        let services = store.snapshot();
+        assert_eq!(0, services.len());
+
+        store.add(&RRPayload::AAAA { name: host.clone(), addr: Ipv6Addr::LOCALHOST });
+        let services = store.snapshot();
+        assert_eq!(1, services.len());
+        let details = services.get(&fq_name).unwrap();
+        assert_eq!(1, details.ipv6s.len());
+        assert!(details.ipv4s.is_empty());
     }
 }
