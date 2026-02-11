@@ -287,7 +287,10 @@ cc_library_host_static {
 
     target: {
         linux: {
-            srcs: ["client/usb_linux.cpp"] + libadb_linux_srcs,
+            srcs: [
+                "client/usb_linux.cpp",
+                "client/usb_linux_netlink.cpp",
+            ] + libadb_linux_srcs,
         },
         darwin: {
             srcs: ["client/usb_osx.cpp"] + libadb_darwin_srcs,
@@ -410,6 +413,9 @@ cc_test_host {
             strip: {
                 none: true,
             },
+            srcs: [
+                "client/usb_linux_test.cpp",
+            ],
         },
         darwin: {
             sanitize: {
