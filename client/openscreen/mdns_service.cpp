@@ -113,8 +113,8 @@ static void OnOpenScreenServiceReceiverResult(
             }
         }
     }
-    ServiceInfo si{info.instance_id(), info.service_id(), ipv4,
-                   ipv6_addresses,     info.port(),       info.txt().GetData()};
+    ServiceInfo si{info.instance_id(), info.service_id(),   "", ipv4, ipv6_addresses,
+                   info.port(),        info.txt().GetData()};
 
     // Convert ServiceUpdateState to ServiceInfoState
     ServiceInfoState st;

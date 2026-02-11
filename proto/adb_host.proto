@@ -146,6 +146,9 @@ message MdnsService {
 
     // Used by clients to manage changes to the MdnsService.
     optional string mdns_service_version = 11;
+
+    // The local hostname the service is advertised under.
+    optional string hostname = 12;
 }
 
 
