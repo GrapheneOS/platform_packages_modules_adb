@@ -290,28 +290,35 @@ impl ZeroConfigDriver {
                     warn!("Error sending query {questions:?} {res:?}");
                 }
             }
-            CreateService { instance_name, service_type, ipv4s, ipv6s, port, txt } => send_update(
-                AdbMdnsUpdate::Create,
-                instance_name,
-                service_type,
-                ipv4s,
-                ipv6s,
-                *port,
-                txt,
-            ),
-            UpdateService { instance_name, service_type, ipv4s, ipv6s, port, txt } => send_update(
-                AdbMdnsUpdate::Update,
-                instance_name,
-                service_type,
-                ipv4s,
-                ipv6s,
-                *port,
-                txt,
-            ),
+            CreateService { instance_name, service_type, hostname, ipv4s, ipv6s, port, txt } => {
+                send_update(
+                    AdbMdnsUpdate::Create,
+                    instance_name,
+                    service_type,
+                    hostname,
+                    ipv4s,
+                    ipv6s,
+                    *port,
+                    txt,
+                )
+            }
+            UpdateService { instance_name, service_type, hostname, ipv4s, ipv6s, port, txt } => {
+                send_update(
+                    AdbMdnsUpdate::Update,
+                    instance_name,
+                    service_type,
+                    hostname,
+                    ipv4s,
+                    ipv6s,
+                    *port,
+                    txt,
+                )
+            }
             DeleteService { instance_name, service_type } => send_update(
                 AdbMdnsUpdate::Delete,
                 instance_name,
                 service_type,
+                "",
                 &HashSet::new(),
                 &HashSet::new(),
                 0,

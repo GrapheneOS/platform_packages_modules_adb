@@ -86,12 +86,14 @@ pub unsafe extern "C" fn register(cb: EventCallback) {
         move |event_type: AdbMdnsUpdate,
               instance_name: &str,
               service_type: &str,
+              hostname: &str,
               ipv4s: &HashSet<Ipv4Addr>,
               ipv6s: &HashSet<Ipv6Addr>,
               port: u16,
               txt_attributes: &TxtAttributes| {
             let instance_str = CString::new(instance_name).unwrap();
             let service_str = CString::new(service_type).unwrap();
+            let hostname_str = CString::new(hostname).unwrap();
             let raw_v4s: Vec<u8> = ipv4s.iter().flat_map(Ipv4Addr::octets).collect();
             // TODO:
             // let raw_v6s: Vec<u128> = ipv6s.iter().map(Ipv6Addr::to_bits).collect();
@@ -120,6 +122,7 @@ pub unsafe extern "C" fn register(cb: EventCallback) {
                     event_type,
                     instance_str.as_ptr(),
                     service_str.as_ptr(),
+                    hostname_str.as_ptr(),
                     raw_v4s.len() as _,
                     raw_v4s.as_ptr() as _,
                     ipv6s.len() as _,
@@ -135,10 +138,12 @@ pub unsafe extern "C" fn register(cb: EventCallback) {
 }
 
 // TODO Documentation
+#[allow(clippy::too_many_arguments)]
 fn send_update(
     event_type: AdbMdnsUpdate,
     instance_name: &str,
     service_type: &str,
+    hostname: &str,
     ipv4s: &HashSet<Ipv4Addr>,
     ipv6s: &HashSet<Ipv6Addr>,
     port: u16,
@@ -146,7 +151,7 @@ fn send_update(
 ) {
     let guard = G_EVENT_CALLBACK.lock().unwrap();
     if let Some(callback) = &*guard {
-        callback(event_type, instance_name, service_type, ipv4s, ipv6s, port, txt);
+        callback(event_type, instance_name, service_type, hostname, ipv4s, ipv6s, port, txt);
     }
 }
 
@@ -192,6 +197,7 @@ type EventCallback = unsafe extern "C" fn(
     event_type: AdbMdnsUpdate,
     instance_name: *const c_char,
     service_type: *const c_char,
+    host_name: *const c_char,
     num_ipv4s: u32,
     ipv4s: *const u8,
     num_ipv6s: u32,
@@ -207,6 +213,7 @@ static G_EVENT_CALLBACK: Mutex<
         Box<
             dyn Fn(
                     AdbMdnsUpdate,
+                    &str,
                     &str,
                     &str,
                     &HashSet<Ipv4Addr>,

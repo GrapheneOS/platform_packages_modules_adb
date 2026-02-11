@@ -43,6 +43,7 @@ impl Store {
 
 #[derive(Debug, PartialEq, Default)]
 pub(crate) struct InstanceDetails {
+    pub(crate) hostname: String,
     pub(crate) port: u16,
     pub(crate) ipv4s: HashSet<Ipv4Addr>,
     pub(crate) ipv6s: HashSet<Ipv6Addr>,
@@ -85,6 +86,7 @@ impl Store {
 
             let mut details = InstanceDetails {
                 port: *port,
+                hostname: target.clone(),
                 ipv4s: HashSet::new(),
                 ipv6s: HashSet::new(),
                 txt: TxtAttributes::new(),

@@ -72,6 +72,8 @@ static std::string list_mdns_services() {
         s->set_mdns_service_version(service.attributes.contains("v") ? service.attributes.at("v")
                                                                      : "1");
 
+        s->set_hostname(service.hostname);
+
         if (service.attributes.contains("name")) {
             s->set_product_model(service.attributes.at("name"));
         }
