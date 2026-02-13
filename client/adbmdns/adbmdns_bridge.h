@@ -47,6 +47,6 @@ extern "C" void adbmdns_start(
         // address "192.168.0.1" will be received as an array of four bytes where
         // byte[0] = 192, byte[1] = 168, byte[2] = 0, and byte[3] = 1.
         void (*events)(AdbMdnsUpdate type, const char* instance_name, const char* service_type,
-                       uint32_t numIPV4s, const uint8_t* ipv4s, uint32_t numIPV6s,
-                       const uint8_t* ipv6s, uint16_t port, const uint32_t num_txt_kvs,
-                       const txt_key_value* txt_kvs));
+                       const char* host_name, uint32_t numIPV4s, const uint8_t* ipv4s,
+                       uint32_t numIPV6s, const uint8_t* ipv6s, uint16_t port,
+                       const uint32_t num_txt_kvs, const txt_key_value* txt_kvs));

@@ -43,6 +43,7 @@ pub(crate) enum ZeroConfigCommand {
     CreateService {
         instance_name: String,
         service_type: String,
+        hostname: String,
         ipv4s: HashSet<Ipv4Addr>,
         ipv6s: HashSet<Ipv6Addr>,
         port: u16,
@@ -51,6 +52,7 @@ pub(crate) enum ZeroConfigCommand {
     UpdateService {
         instance_name: String,
         service_type: String,
+        hostname: String,
         ipv4s: HashSet<Ipv4Addr>,
         ipv6s: HashSet<Ipv6Addr>,
         port: u16,
@@ -322,6 +324,7 @@ impl ZeroConfig {
                 self.commands.push(ZeroConfigCommand::CreateService {
                     instance_name: service.instance_name.clone(),
                     service_type: service.service_type.clone(),
+                    hostname: details.hostname.clone(),
                     ipv4s: details.ipv4s.clone(),
                     ipv6s: details.ipv6s.clone(),
                     port: details.port,
@@ -337,6 +340,7 @@ impl ZeroConfig {
                     self.commands.push(ZeroConfigCommand::UpdateService {
                         instance_name: service.instance_name.clone(),
                         service_type: service.service_type.clone(),
+                        hostname: details.hostname.clone(),
                         ipv4s: details.ipv4s.clone(),
                         ipv6s: details.ipv6s.clone(),
                         port: details.port,
@@ -645,6 +649,7 @@ mod tests {
             ZeroConfigCommand::CreateService {
                 instance_name,
                 service_type,
+                hostname,
                 ipv4s,
                 ipv6s,
                 port,
@@ -652,6 +657,7 @@ mod tests {
             } => {
                 assert_eq!(service.instance_name, *instance_name);
                 assert_eq!(service.service_type, *service_type);
+                assert_eq!(target, hostname);
                 assert_eq!(*port, service_port);
                 assert_eq!(*txt, txt_attributes);
                 assert!(ipv4s.contains(&ipv4));
@@ -676,6 +682,7 @@ mod tests {
             ZeroConfigCommand::UpdateService {
                 instance_name,
                 service_type,
+                hostname,
                 ipv4s,
                 ipv6s,
                 port,
@@ -683,6 +690,8 @@ mod tests {
             } => {
                 assert_eq!(service.instance_name, *instance_name);
                 assert_eq!(service.service_type, *service_type);
+                assert_eq!(target, hostname);
+                assert_eq!(*txt, txt_attributes_update);
                 assert_eq!(*txt, txt_attributes_update);
                 assert_eq!(*port, service_port);
                 assert!(ipv4s.contains(&ipv4));
@@ -706,6 +715,7 @@ mod tests {
             ZeroConfigCommand::UpdateService {
                 instance_name,
                 service_type,
+                hostname,
                 ipv4s,
                 ipv6s,
                 port,
@@ -713,6 +723,7 @@ mod tests {
             } => {
                 assert_eq!(service.instance_name, *instance_name);
                 assert_eq!(service.service_type, *service_type);
+                assert_eq!(target, hostname);
                 assert_eq!(*port, new_port);
                 assert_eq!(*txt, txt_attributes_update);
                 assert!(ipv4s.contains(&ipv4));
@@ -773,6 +784,7 @@ mod tests {
             ZeroConfigCommand::CreateService {
                 instance_name,
                 service_type,
+                hostname,
                 ipv4s,
                 ipv6s,
                 port: p,
@@ -780,6 +792,7 @@ mod tests {
             } => {
                 assert_eq!(instance_name, &service.instance_name);
                 assert_eq!(service_type, &service.service_type);
+                assert_eq!(target, hostname);
                 assert_eq!(port, *p);
                 assert_eq!(*ipv4s, expected_ipv4s);
                 assert_eq!(*ipv6s, expected_ipv6s);
@@ -1247,6 +1260,7 @@ mod tests {
             ZeroConfigCommand::CreateService {
                 instance_name,
                 service_type,
+                hostname,
                 ipv4s,
                 ipv6s,
                 port: p,
@@ -1254,6 +1268,7 @@ mod tests {
             } => {
                 assert_eq!(instance_name, &service.instance_name);
                 assert_eq!(service_type, &service.service_type);
+                assert_eq!(hostname, target);
                 assert_eq!(port, *p);
                 assert_eq!(txt, &txt_attributes);
                 assert!(ipv4s.contains(&ipv4));
@@ -1295,6 +1310,7 @@ mod tests {
             ZeroConfigCommand::CreateService {
                 instance_name,
                 service_type,
+                hostname,
                 ipv4s,
                 ipv6s,
                 port: p,
@@ -1302,6 +1318,7 @@ mod tests {
             } => {
                 assert_eq!(instance_name, &d2_service.instance_name);
                 assert_eq!(service_type, &d2_service.service_type);
+                assert_eq!(d2_target, hostname);
                 assert_eq!(d2_port, *p);
                 assert_eq!(txt, &d2_txt_attributes);
                 assert!(ipv4s.contains(&d2_ipv4));
@@ -1386,6 +1403,7 @@ mod tests {
             ZeroConfigCommand::CreateService {
                 instance_name,
                 service_type,
+                hostname,
                 ipv4s,
                 ipv6s,
                 port: p,
@@ -1393,6 +1411,7 @@ mod tests {
             } => {
                 assert_eq!(instance_name, &service_tls.instance_name);
                 assert_eq!(service_type, &service_tls.service_type);
+                assert_eq!(target, hostname);
                 assert_eq!(port_tls, *p);
                 assert_eq!(txt, &txt_attributes);
                 assert!(ipv4s.contains(&ipv4));
@@ -1429,6 +1448,7 @@ mod tests {
             ZeroConfigCommand::CreateService {
                 instance_name,
                 service_type,
+                hostname,
                 ipv4s,
                 ipv6s,
                 port: p,
@@ -1436,6 +1456,7 @@ mod tests {
             } => {
                 assert_eq!(instance_name, &service_tcp.instance_name);
                 assert_eq!(service_type, &service_tcp.service_type);
+                assert_eq!(target, hostname);
                 assert_eq!(port_tcp, *p);
                 assert_eq!(txt, &txt_attributes);
                 assert!(ipv4s.contains(&ipv4));
@@ -1514,6 +1535,7 @@ mod tests {
             ZeroConfigCommand::CreateService {
                 instance_name,
                 service_type,
+                hostname,
                 ipv4s,
                 ipv6s,
                 port: p,
@@ -1521,6 +1543,7 @@ mod tests {
             } => {
                 assert_eq!(instance_name, &service_tls.instance_name);
                 assert_eq!(service_type, &service_tls.service_type);
+                assert_eq!(target, hostname);
                 assert_eq!(port_tls, *p);
                 assert_eq!(txt, &txt_attributes);
                 assert!(ipv4s.contains(&ipv4));

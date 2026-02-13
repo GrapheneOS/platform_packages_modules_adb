@@ -89,9 +89,9 @@ static std::vector<std::vector<uint8_t>> parseTxt(const uint32_t num_txt_kv,
 }
 
 static void events_cb(AdbMdnsUpdate type, const char* instance_name, const char* service_type,
-                      uint32_t numIPV4s, const uint8_t* ipv4s, uint32_t numIPV6s,
-                      const uint8_t* ipv6s, uint16_t port, const uint32_t num_txt_key_values,
-                      const txt_key_value* txt_kvs) {
+                      const char* host_name, uint32_t numIPV4s, const uint8_t* ipv4s,
+                      uint32_t numIPV6s, const uint8_t* ipv6s, uint16_t port,
+                      const uint32_t num_txt_key_values, const txt_key_value* txt_kvs) {
     std::unordered_set<IPv6Address, IPv6AddressHash> in_v6_addresses;
     for (auto i = 0u; i < numIPV6s; i++) {
         in_v6_addresses.insert(rawIpv6ToIPv6(ipv6s + i * sizeof(IPv6Address::bytes)));
@@ -104,8 +104,8 @@ static void events_cb(AdbMdnsUpdate type, const char* instance_name, const char*
 
     const std::vector<std::vector<uint8_t>> txt = parseTxt(num_txt_key_values, txt_kvs);
 
-    auto info =
-            ServiceInfo{instance_name, service_type, std::optional(ip), in_v6_addresses, port, txt};
+    auto info = ServiceInfo{instance_name,   service_type, host_name, std::optional(ip),
+                            in_v6_addresses, port,         txt};
 
     OnServiceReceiverResult(info, update_to_state(type));
 }

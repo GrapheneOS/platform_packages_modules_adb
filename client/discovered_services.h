@@ -79,11 +79,12 @@ struct ServiceInfo {
     ServiceInfo() = default;
 
     ServiceInfo(const std::string& in_instance, const std::string& in_service,
-                const std::optional<IPv4Address>& in_v4_address,
+                const std::string& hostname, const std::optional<IPv4Address>& in_v4_address,
                 const std::unordered_set<IPv6Address, IPv6AddressHash>& in_v6_addresses,
                 const uint16_t in_port, const std::vector<std::vector<uint8_t>>& txt)
         : instance(in_instance),
           service(in_service),
+          hostname(hostname),
           v4_address(in_v4_address),
           v6_addresses(in_v6_addresses),
           port(in_port),
@@ -91,6 +92,7 @@ struct ServiceInfo {
 
     std::string instance;
     std::string service;
+    std::string hostname;
     std::optional<IPv4Address> v4_address;
     std::unordered_set<IPv6Address, IPv6AddressHash> v6_addresses;
     uint16_t port;

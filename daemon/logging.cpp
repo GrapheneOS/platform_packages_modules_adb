@@ -66,7 +66,7 @@ static LogStatus GetLogStatus(android::base::CachedProperty* property,
     bool changed;
     const char* value = property->Get(&changed);
     if (changed || !*cached_status) {
-        **cached_status = ParseLogStatus(value);
+        *cached_status = ParseLogStatus(value);
     }
     return **cached_status;
 }
