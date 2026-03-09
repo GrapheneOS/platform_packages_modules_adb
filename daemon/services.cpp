@@ -280,6 +280,10 @@ unique_fd daemon_service_to_fd(std::string_view name, atransport* transport) {
         return unique_fd{};
     }
 
+#if defined(__ANDROID__)
+    LOG(INFO) << "adbd service requested '" << name << "'";
+#endif
+
 #if defined(__ANDROID__) && !defined(__ANDROID_RECOVERY__)
     if (name.starts_with("abb:") || name.starts_with("abb_exec:")) {
         return execute_abb_command(name);
