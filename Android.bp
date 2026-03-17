@@ -369,6 +369,7 @@ cc_test_host {
     srcs: libadb_test_srcs + [
         "client/adb_wifi_test.cpp",
         "client/commandline_test.cpp",
+        "client/console_test.cpp",
         "client/discovered_services_test.cpp",
         "client/mdns_utils_test.cpp",
         "test_utils/test_utils.cpp",
